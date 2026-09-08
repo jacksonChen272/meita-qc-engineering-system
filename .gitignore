@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+
+# Company-controlled documents and their extracted content stay local.
+input/*.doc
+input/*.docx
+debug/*.json
+ui/static/data.json
+build-report.json
+
+# Local QA and runtime files.
+*.log
+qa-*.png
+qa-*.pdf
+Thumbs.db
+.DS_Store
