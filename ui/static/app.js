@@ -1026,11 +1026,11 @@
   function onlineSetupView() {
     return `<header class="topbar"><div class="brand"><div class="brand-mark">QC</div><div><strong>美達食品 QC 工程圖</strong><small>GitHub 線上版・瀏覽器內文件解析</small></div></div></header>
       <main class="page online-setup-page">
-        <section class="online-setup-hero"><p class="eyebrow">ONLINE SETUP</p><h1>開始建立 QC 工程圖</h1><p>公開網站不預先存放公司文件。請選擇 QC 工程圖母版及外來標準，系統會直接在目前瀏覽器中解析，不會把檔案上傳到 GitHub。</p></section>
+        <section class="online-setup-hero"><p class="eyebrow">ONLINE SETUP</p><h1>開始建立 QC 工程圖</h1><p>QC 母版已內建完成。請匯入外來標準；若有同產品的舊版 QC 工程圖，也可一起匯入以延續文件編號、制定日期、版次與修訂履歷。</p></section>
         <section class="online-setup-panel">
           <div class="online-file-grid">
-            <label class="online-file-card"><span class="online-file-number">1</span><div><h2>QC 工程圖母版</h2><p>提供欄位、製程、合併與分頁結構</p><strong data-online-qc-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-qc></label>
-            <label class="online-file-card"><span class="online-file-number">2</span><div><h2>外來標準文件</h2><p>研發或委託廠商提供的產品標準</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-rnd></label>
+            <label class="online-file-card required"><span class="online-file-number">1</span><div><h2>外來標準文件 <em>必要</em></h2><p>研發或委託廠商提供的產品標準</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-rnd></label>
+            <label class="online-file-card"><span class="online-file-number">2</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>用來延續文件編號、日期、版次與修訂履歷</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-legacy></label>
           </div>
           <button class="btn btn-accent online-start-button" type="button" data-online-start disabled>開始解析並建立工程圖</button>
           <p class="online-setup-status" data-online-status>線上版支援 .docx；若是舊式 .doc，請先用 Word 另存為 .docx。</p>
@@ -1041,31 +1041,32 @@
 
   function showOnlineSetup() {
     app.innerHTML = onlineSetupView();
-    const qcInput = document.querySelector("[data-online-qc]");
     const rndInput = document.querySelector("[data-online-rnd]");
+    const legacyInput = document.querySelector("[data-online-legacy]");
     const startButton = document.querySelector("[data-online-start]");
     const status = document.querySelector("[data-online-status]");
     const updateSelection = () => {
-      document.querySelector("[data-online-qc-name]").textContent = qcInput.files?.[0]?.name || "尚未選擇檔案";
       document.querySelector("[data-online-rnd-name]").textContent = rndInput.files?.[0]?.name || "尚未選擇檔案";
-      startButton.disabled = !(qcInput.files?.[0] && rndInput.files?.[0]);
+      document.querySelector("[data-online-legacy-name]").textContent = legacyInput.files?.[0]?.name || "沒有舊版可不選";
+      startButton.disabled = !rndInput.files?.[0];
     };
-    qcInput.addEventListener("change", updateSelection);
     rndInput.addEventListener("change", updateSelection);
+    legacyInput.addEventListener("change", updateSelection);
     startButton.addEventListener("click", async () => {
-      const qcFile = qcInput.files?.[0];
       const rndFile = rndInput.files?.[0];
-      if (!qcFile || !rndFile) return;
+      const legacyFile = legacyInput.files?.[0];
+      if (!rndFile) return;
       startButton.disabled = true;
       status.classList.remove("error");
       try {
-        const result = await window.QcBrowserRuntime.buildBundle(qcFile, rndFile, message => { status.textContent = message; });
+        const result = await window.QcBrowserRuntime.buildBundle(rndFile, message => { status.textContent = message; });
         if (!result.ok || !result.data?.rnd?.parameterCount) throw new Error("找不到可解析的產品規格或標準項目");
         initializeData(result.data, {
           onlineMode: true,
           fileName: rndFile.name,
           message: `已在瀏覽器完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；檔案未上傳。`,
         });
+        if (legacyFile) await importLegacyFile(legacyFile);
       } catch (error) {
         status.textContent = `解析失敗：${error.message}`;
         status.classList.add("error");

@@ -10,6 +10,8 @@ from docx import Document
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+QC_FIXTURE = ROOT / "input" / "qc-template.docx"
+RND_FIXTURE = next(iter(sorted((ROOT / "input").glob("*-AF_*.docx"))), None)
 
 from diff import align_display_value, build_diff, values_equal
 from mapping import map_parameters
@@ -60,14 +62,14 @@ class LegacyMetadataTests(unittest.TestCase):
 
 
 @unittest.skipUnless(
-    (ROOT / "input" / "qc-template.docx").exists() and (ROOT / "input" / "rnd-standard.docx").exists(),
-    "本機整合測試需要 input/qc-template.docx 與 input/rnd-standard.docx",
+    QC_FIXTURE.exists() and RND_FIXTURE is not None,
+    "本機整合測試需要 QC 母版與保留受控檔名的外來標準",
 )
 class PipelineTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.qc = parse_qc_template(ROOT / "input" / "qc-template.docx")
-        cls.rnd = parse_rnd_document(ROOT / "input" / "rnd-standard.docx")
+        cls.qc = parse_qc_template(QC_FIXTURE)
+        cls.rnd = parse_rnd_document(RND_FIXTURE)
         cls.mapping = map_parameters(cls.rnd, cls.qc)
         cls.diff = build_diff(cls.qc, cls.rnd, cls.mapping)
 

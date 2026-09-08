@@ -14,7 +14,7 @@
 
   let readyPromise = null;
   let pyodide = null;
-  let qcPath = "";
+  let qcTemplatePromise = null;
 
   function safeFileName(file) {
     return String(file.name || "document.docx").replace(/[\\/]/g, "_");
@@ -51,18 +51,28 @@
     return path;
   }
 
-  async function buildBundle(qcFile, rndFile, onStatus) {
+  async function loadQcTemplate() {
+    if (!qcTemplatePromise) {
+      qcTemplatePromise = fetch("qc-template.json", { cache: "no-store" }).then(response => {
+        if (!response.ok) throw new Error("網站缺少內建 QC 母版，請通知系統管理者。");
+        return response.text();
+      });
+    }
+    return qcTemplatePromise;
+  }
+
+  async function buildBundle(rndFile, onStatus) {
     await initialize(onStatus);
-    onStatus?.("正在解析 QC 母版與外來標準…");
-    qcPath = await writeDocument(qcFile, "qc");
+    onStatus?.("正在使用內建母版解析外來標準…");
+    const qcJson = await loadQcTemplate();
     const rndPath = await writeDocument(rndFile, "");
-    pyodide.globals.set("qc_path_js", qcPath);
+    pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);
     const output = await pyodide.runPythonAsync(`
 import json
 from pathlib import Path
-from build import build_bundle
-_bundle, _report = build_bundle(Path(qc_path_js), Path(rnd_path_js))
+from build import build_bundle_from_qc
+_bundle, _report = build_bundle_from_qc(json.loads(qc_json_js), Path(rnd_path_js))
 json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
 `);
     return JSON.parse(output);
@@ -70,15 +80,15 @@ json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
 
   async function importStandard(file, onStatus) {
     await initialize(onStatus);
-    if (!qcPath) throw new Error("請先重新載入網站並匯入 QC 母版。");
+    const qcJson = await loadQcTemplate();
     const rndPath = await writeDocument(file, "");
-    pyodide.globals.set("qc_path_js", qcPath);
+    pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);
     const output = await pyodide.runPythonAsync(`
 import json
 from pathlib import Path
-from build import build_bundle
-_bundle, _report = build_bundle(Path(qc_path_js), Path(rnd_path_js))
+from build import build_bundle_from_qc
+_bundle, _report = build_bundle_from_qc(json.loads(qc_json_js), Path(rnd_path_js))
 json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
 `);
     return JSON.parse(output);

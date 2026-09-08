@@ -11,7 +11,10 @@ if (-not $python) {
 
 Push-Location $root
 try {
-    & $python "$root\build.py"
+    $qcInput = Join-Path $root "input\qc-template.docx"
+    $rndInput = Get-ChildItem -LiteralPath (Join-Path $root "input") -Filter "*-AF_*.docx" -File -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+    if (-not $rndInput) { $rndInput = Join-Path $root "input\rnd-standard.docx" }
+    & $python "$root\build.py" --qc $qcInput --rnd $rndInput
     if ($LASTEXITCODE -ne 0) { throw "資料 Build 失敗。" }
     $lanIp = Get-NetIPConfiguration -ErrorAction SilentlyContinue |
         Where-Object { $_.IPv4DefaultGateway -and $_.IPv4Address } |
