@@ -35,8 +35,10 @@
     documentMeta: null,
     standardImport: null,
     tutorialPage: 0,
+    onlineMode: false,
   };
   const app = document.getElementById("app");
+  let globalListenersBound = false;
 
   function esc(value) {
     return String(value ?? "")
@@ -206,15 +208,16 @@
     const rnd = state.data.rnd;
     const product = rnd.product || {};
     const upload = state.standardImport || {};
+    const formats = state.onlineMode ? ".docx" : ".doc／.docx";
     return `<section class="standard-import-panel">
       <div class="standard-import-copy">
         <p class="eyebrow">外來文件</p>
         <h2>匯入外來標準文件</h2>
-        <p>選擇研發或委託廠商提供的產品標準 Word；系統會重新解析、比對 QC 母版並更新下方差異。</p>
+        <p>選擇研發或委託廠商提供的產品標準 Word；系統會重新解析、比對 QC 母版並更新下方差異。${state.onlineMode ? "檔案只在目前瀏覽器中處理，不會上傳至 GitHub。" : ""}</p>
       </div>
       <label class="standard-file-field">
-        <span>${upload.loading ? "解析中，請稍候…" : "選擇標準文件（.doc／.docx）"}</span>
-        <input type="file" accept=".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-standard-file ${upload.loading ? "disabled" : ""}>
+        <span>${upload.loading ? "解析中，請稍候…" : `選擇標準文件（${formats}）`}</span>
+        <input type="file" accept="${state.onlineMode ? ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"}" data-standard-file ${upload.loading ? "disabled" : ""}>
       </label>
       <div class="source-facts">
         <div><span>目前產品</span><strong>${esc(product.name || "待匯入")}</strong></div>
@@ -515,7 +518,7 @@
           <label><span>品質管制標準書編號</span><input type="text" data-meta-field="documentNumber" value="${esc(meta.documentNumber)}" placeholder="例如 02-0200-033"></label>
           <label><span>權責／適用單位</span><select data-meta-field="unit">${["生產一課", "生產二課", "生產三課"].map(unit => `<option ${unit === meta.unit ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
           <label class="revision-content-field"><span>本次修訂內容摘要</span><input type="text" data-meta-field="revisionContent" value="${esc(meta.revisionContent)}" placeholder="請輸入本次修訂內容"></label>
-          <label class="legacy-file-field"><span>匯入舊版（選填）</span><input type="file" accept=".doc,.docx" data-legacy-file></label>
+          <label class="legacy-file-field"><span>匯入舊版（選填${state.onlineMode ? "，線上版限 .docx" : ""}）</span><input type="file" accept="${state.onlineMode ? ".docx" : ".doc,.docx"}" data-legacy-file></label>
         </div>
         <div class="metadata-summary">
           <span>版本 <strong>2.0</strong></span><span>制定日期 <strong>${esc(meta.establishedDate)}</strong></span><span>本次版次 <strong>${esc(meta.currentRevision)}</strong></span><span>修訂日期 <strong>${esc(meta.revisionDate)}</strong></span><span>發行日期 <strong>${esc(meta.issueDate)}</strong></span><span>檢討週期 <strong>1 年</strong></span>
@@ -613,14 +616,22 @@
     state.documentMeta.importError = false;
     render();
     try {
-      const contentBase64 = await readFileAsBase64(file);
-      const response = await fetch("/api/import-legacy", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentBase64 }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      let result;
+      if (state.onlineMode) {
+        result = await window.QcBrowserRuntime.importLegacy(file, message => {
+          state.documentMeta.importMessage = message;
+          render();
+        });
+      } else {
+        const contentBase64 = await readFileAsBase64(file);
+        const response = await fetch("/api/import-legacy", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, contentBase64 }),
+        });
+        result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      }
       const old = result.metadata;
       const allowedUnits = ["生產一課", "生產二課", "生產三課"];
       state.documentMeta.documentNumber = old.documentNumber || state.documentMeta.documentNumber;
@@ -645,14 +656,22 @@
     state.standardImport = { fileName: file.name, message: `正在解析 ${file.name}…`, error: false, loading: true };
     render();
     try {
-      const contentBase64 = await readFileAsBase64(file);
-      const response = await fetch("/api/import-standard", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: file.name, contentBase64 }),
-      });
-      const result = await response.json();
-      if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      let result;
+      if (state.onlineMode) {
+        result = await window.QcBrowserRuntime.importStandard(file, message => {
+          state.standardImport.message = message;
+          render();
+        });
+      } else {
+        const contentBase64 = await readFileAsBase64(file);
+        const response = await fetch("/api/import-standard", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: file.name, contentBase64 }),
+        });
+        result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
+      }
       state.data = result.data;
       state.decisions = {};
       state.manualEditing = null;
@@ -984,18 +1003,94 @@
     });
   }
 
-  fetch("/api/data")
-    .then(response => response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`)))
-    .catch(() => fetch("data.json").then(response => response.json()))
-    .then(data => {
-      state.data = data;
-      state.documentMeta = initDocumentMeta();
-      state.standardImport = { fileName: data.rnd.product.sourceFile, message: "已載入目前的外來標準文件。", error: false, loading: false };
-      state.processOrder = data.qc.processSteps.map(step => step.id);
+  function initializeData(data, options = {}) {
+    state.data = data;
+    state.onlineMode = Boolean(options.onlineMode);
+    state.documentMeta = initDocumentMeta();
+    state.standardImport = {
+      fileName: options.fileName || data.rnd.product.sourceFile,
+      message: options.message || "已載入目前的外來標準文件。",
+      error: false,
+      loading: false,
+    };
+    state.processOrder = data.qc.processSteps.map(step => step.id);
+    if (!globalListenersBound) {
       window.addEventListener("resize", () => requestAnimationFrame(alignFlowOverlays));
       window.addEventListener("beforeprint", alignFlowOverlays);
       window.addEventListener("afterprint", () => requestAnimationFrame(alignFlowOverlays));
-      render();
-    })
-    .catch(error => { app.innerHTML = `<div class="loading-card error-card">資料載入失敗：${esc(error.message)}</div>`; });
+      globalListenersBound = true;
+    }
+    render();
+  }
+
+  function onlineSetupView() {
+    return `<header class="topbar"><div class="brand"><div class="brand-mark">QC</div><div><strong>美達食品 QC 工程圖</strong><small>GitHub 線上版・瀏覽器內文件解析</small></div></div></header>
+      <main class="page online-setup-page">
+        <section class="online-setup-hero"><p class="eyebrow">ONLINE SETUP</p><h1>開始建立 QC 工程圖</h1><p>公開網站不預先存放公司文件。請選擇 QC 工程圖母版及外來標準，系統會直接在目前瀏覽器中解析，不會把檔案上傳到 GitHub。</p></section>
+        <section class="online-setup-panel">
+          <div class="online-file-grid">
+            <label class="online-file-card"><span class="online-file-number">1</span><div><h2>QC 工程圖母版</h2><p>提供欄位、製程、合併與分頁結構</p><strong data-online-qc-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-qc></label>
+            <label class="online-file-card"><span class="online-file-number">2</span><div><h2>外來標準文件</h2><p>研發或委託廠商提供的產品標準</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-rnd></label>
+          </div>
+          <button class="btn btn-accent online-start-button" type="button" data-online-start disabled>開始解析並建立工程圖</button>
+          <p class="online-setup-status" data-online-status>線上版支援 .docx；若是舊式 .doc，請先用 Word 另存為 .docx。</p>
+        </section>
+        <div class="online-privacy-note"><strong>檔案隱私：</strong>文件只會進入此分頁的暫存記憶體，關閉或重新整理後即清除。網站載入解析核心時需要網路連線。</div>
+      </main>`;
+  }
+
+  function showOnlineSetup() {
+    app.innerHTML = onlineSetupView();
+    const qcInput = document.querySelector("[data-online-qc]");
+    const rndInput = document.querySelector("[data-online-rnd]");
+    const startButton = document.querySelector("[data-online-start]");
+    const status = document.querySelector("[data-online-status]");
+    const updateSelection = () => {
+      document.querySelector("[data-online-qc-name]").textContent = qcInput.files?.[0]?.name || "尚未選擇檔案";
+      document.querySelector("[data-online-rnd-name]").textContent = rndInput.files?.[0]?.name || "尚未選擇檔案";
+      startButton.disabled = !(qcInput.files?.[0] && rndInput.files?.[0]);
+    };
+    qcInput.addEventListener("change", updateSelection);
+    rndInput.addEventListener("change", updateSelection);
+    startButton.addEventListener("click", async () => {
+      const qcFile = qcInput.files?.[0];
+      const rndFile = rndInput.files?.[0];
+      if (!qcFile || !rndFile) return;
+      startButton.disabled = true;
+      status.classList.remove("error");
+      try {
+        const result = await window.QcBrowserRuntime.buildBundle(qcFile, rndFile, message => { status.textContent = message; });
+        if (!result.ok || !result.data?.rnd?.parameterCount) throw new Error("找不到可解析的產品規格或標準項目");
+        initializeData(result.data, {
+          onlineMode: true,
+          fileName: rndFile.name,
+          message: `已在瀏覽器完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；檔案未上傳。`,
+        });
+      } catch (error) {
+        status.textContent = `解析失敗：${error.message}`;
+        status.classList.add("error");
+        startButton.disabled = false;
+      }
+    });
+  }
+
+  async function loadInitialData() {
+    const isGitHubPages = window.location.hostname.toLowerCase().endsWith("github.io");
+    if (isGitHubPages) { showOnlineSetup(); return; }
+    try {
+      const apiResponse = await fetch("/api/data");
+      if (!apiResponse.ok) throw new Error(`HTTP ${apiResponse.status}`);
+      initializeData(await apiResponse.json());
+    } catch (apiError) {
+      try {
+        const staticResponse = await fetch("data.json");
+        if (!staticResponse.ok) throw new Error(`HTTP ${staticResponse.status}`);
+        initializeData(await staticResponse.json());
+      } catch (staticError) {
+        showOnlineSetup();
+      }
+    }
+  }
+
+  loadInitialData();
 }());

@@ -6,6 +6,12 @@
 
 目前提供瀏覽器列印／另存 PDF 與另存 HTML；尚未包含 Word 匯出、登入、資料庫、權限、雲端後端或多使用者管理。
 
+## 線上網站
+
+GitHub Pages：<https://jacksonchen272.github.io/meita-qc-engineering-system/>
+
+線上版第一次開啟時，請選擇 QC 母版與外來標準 `.docx`。兩份文件會由 Pyodide 在目前瀏覽器的暫存記憶體中解析，不會上傳至 GitHub；重新整理或關閉分頁後資料即清除。舊式 `.doc` 需要先用 Microsoft Word 另存為 `.docx`，或改用下方桌面版。
+
 ## 啟動
 
 第一次下載後，先將下列兩份本機文件放入 `input/`：

@@ -1,0 +1,102 @@
+(function () {
+  "use strict";
+
+  const PYODIDE_INDEX = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
+  const PYTHON_SOURCES = [
+    "build.py",
+    "diff/__init__.py", "diff/compare.py", "diff/normalize.py",
+    "domain/__init__.py", "domain/control_item.py", "domain/process_step.py", "domain/product.py", "domain/source_trace.py",
+    "mapping/__init__.py", "mapping/parameter_mapping.py", "mapping/process_mapping.py",
+    "parsers/__init__.py", "parsers/docx_utils.py", "parsers/legacy_doc_metadata.py", "parsers/qc_template_parser.py", "parsers/rnd_docx_parser.py",
+    "render/__init__.py", "render/flow_renderer.py", "render/pagination.py", "render/qc_html_renderer.py",
+    "templates/__init__.py", "templates/qc_template.py",
+  ];
+
+  let readyPromise = null;
+  let pyodide = null;
+  let qcPath = "";
+
+  function safeFileName(file) {
+    return String(file.name || "document.docx").replace(/[\\/]/g, "_");
+  }
+
+  async function initialize(onStatus) {
+    if (readyPromise) return readyPromise;
+    readyPromise = (async () => {
+      onStatus?.("正在載入線上文件解析核心，第一次約需數秒…");
+      if (typeof window.loadPyodide !== "function") throw new Error("線上解析核心載入失敗，請確認網路可連線至 CDN。");
+      pyodide = await window.loadPyodide({ indexURL: PYODIDE_INDEX });
+      pyodide.FS.mkdirTree("/app");
+      const sources = await Promise.all(PYTHON_SOURCES.map(async source => {
+        const response = await fetch(source, { cache: "no-store" });
+        if (!response.ok) throw new Error(`找不到線上解析程式：${source}`);
+        return [source, await response.text()];
+      }));
+      for (const [source, content] of sources) {
+        const target = `/app/${source}`;
+        pyodide.FS.mkdirTree(target.slice(0, target.lastIndexOf("/")));
+        pyodide.FS.writeFile(target, content, { encoding: "utf8" });
+      }
+      await pyodide.runPythonAsync('import sys\nif "/app" not in sys.path: sys.path.insert(0, "/app")');
+      return pyodide;
+    })();
+    try { return await readyPromise; }
+    catch (error) { readyPromise = null; throw error; }
+  }
+
+  async function writeDocument(file, prefix) {
+    if (!file || !file.name.toLowerCase().endsWith(".docx")) throw new Error("GitHub 線上版只接受 .docx；舊式 .doc 請先用 Word 另存為 .docx。");
+    const path = `/tmp/${prefix ? `${prefix}-` : ""}${safeFileName(file)}`;
+    pyodide.FS.writeFile(path, new Uint8Array(await file.arrayBuffer()));
+    return path;
+  }
+
+  async function buildBundle(qcFile, rndFile, onStatus) {
+    await initialize(onStatus);
+    onStatus?.("正在解析 QC 母版與外來標準…");
+    qcPath = await writeDocument(qcFile, "qc");
+    const rndPath = await writeDocument(rndFile, "");
+    pyodide.globals.set("qc_path_js", qcPath);
+    pyodide.globals.set("rnd_path_js", rndPath);
+    const output = await pyodide.runPythonAsync(`
+import json
+from pathlib import Path
+from build import build_bundle
+_bundle, _report = build_bundle(Path(qc_path_js), Path(rnd_path_js))
+json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
+`);
+    return JSON.parse(output);
+  }
+
+  async function importStandard(file, onStatus) {
+    await initialize(onStatus);
+    if (!qcPath) throw new Error("請先重新載入網站並匯入 QC 母版。");
+    const rndPath = await writeDocument(file, "");
+    pyodide.globals.set("qc_path_js", qcPath);
+    pyodide.globals.set("rnd_path_js", rndPath);
+    const output = await pyodide.runPythonAsync(`
+import json
+from pathlib import Path
+from build import build_bundle
+_bundle, _report = build_bundle(Path(qc_path_js), Path(rnd_path_js))
+json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
+`);
+    return JSON.parse(output);
+  }
+
+  async function importLegacy(file, onStatus) {
+    await initialize(onStatus);
+    onStatus?.("正在解析舊版 QC 工程圖…");
+    const legacyPath = await writeDocument(file, "legacy");
+    pyodide.globals.set("legacy_path_js", legacyPath);
+    const output = await pyodide.runPythonAsync(`
+import json
+from pathlib import Path
+from parsers import parse_legacy_metadata
+json.dumps({"ok": True, "metadata": parse_legacy_metadata(Path(legacy_path_js))}, ensure_ascii=False)
+`);
+    return JSON.parse(output);
+  }
+
+  window.QcBrowserRuntime = { buildBundle, importLegacy, importStandard };
+}());

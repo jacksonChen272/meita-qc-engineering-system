@@ -421,6 +421,25 @@ h2 { font-size: 24px; letter-spacing: -.02em; }
 .tutorial-pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 22px; padding-top: 17px; border-top: 1px solid var(--soft-line); }
 .tutorial-pager > span { color: var(--muted); font-size: 12px; font-weight: 800; }
 
+.online-setup-page { max-width: 1080px; }
+.online-setup-hero { padding: 34px 38px; border-radius: 20px 20px 0 0; color: white; background: radial-gradient(circle at 88% 12%, rgba(74,205,190,.32), transparent 30%), linear-gradient(130deg, var(--navy), #17355e 68%, #146d6c); }
+.online-setup-hero .eyebrow { color: #84ded4; }
+.online-setup-hero h1 { margin-bottom: 12px; }
+.online-setup-hero p:last-child { max-width: 760px; margin: 0; color: rgba(255,255,255,.8); font-size: 16px; line-height: 1.75; }
+.online-setup-panel { padding: 28px 30px 30px; border: 1px solid var(--soft-line); border-top: 0; border-radius: 0 0 20px 20px; background: white; box-shadow: var(--shadow); }
+.online-file-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.online-file-card { position: relative; display: grid; grid-template-columns: 46px minmax(0,1fr); gap: 14px; min-height: 160px; padding: 21px; overflow: hidden; border: 1px dashed #91aaa7; border-radius: 15px; background: #f8fbfb; cursor: pointer; }
+.online-file-card:hover { border-color: var(--teal); background: #f1faf8; }
+.online-file-number { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; color: white; background: var(--teal); font-size: 18px; font-weight: 900; }
+.online-file-card h2 { margin-bottom: 6px; font-size: 19px; }
+.online-file-card p { margin-bottom: 12px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.online-file-card strong { display: block; overflow-wrap: anywhere; color: #2c4f55; font-size: 12px; }
+.online-file-card input { position: absolute; inset: 0; cursor: pointer; opacity: 0; }
+.online-start-button { display: block; min-width: 270px; margin: 22px auto 12px; }
+.online-setup-status { margin: 0; color: var(--muted); text-align: center; font-size: 13px; }
+.online-setup-status.error { color: var(--red); font-weight: 700; }
+.online-privacy-note { margin-top: 16px; padding: 14px 17px; border: 1px solid #cde4df; border-radius: 12px; color: #335c57; background: #eef8f6; font-size: 13px; line-height: 1.6; }
+
 .empty-state { padding: 48px; text-align: center; color: var(--muted); }
 .loading-card { width: min(560px, calc(100% - 40px)); margin: 18vh auto; padding: 28px; border-radius: 16px; background: white; box-shadow: var(--shadow); text-align: center; }
 .error-card { color: var(--red); }
@@ -438,6 +457,7 @@ h2 { font-size: 24px; letter-spacing: -.02em; }
   .preview-actions { justify-content: flex-start; }
   .source-facts { grid-template-columns: 1fr 1fr; }
   .tutorial-hero { align-items: flex-start; flex-direction: column; }
+  .online-file-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 650px) {
