@@ -17,6 +17,8 @@ from parsers import convert_doc_to_docx, parse_legacy_metadata
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "ui" / "static"
 QC_TEMPLATE = ROOT / "input" / "qc-template.docx"
+WORD_SUFFIXES = {".doc", ".docx", ".docm", ".dot", ".dotx", ".dotm", ".wbk"}
+BINARY_WORD_SUFFIXES = {".doc", ".dot", ".wbk"}
 
 
 class DemoHandler(SimpleHTTPRequestHandler):
@@ -68,8 +70,8 @@ class DemoHandler(SimpleHTTPRequestHandler):
             body = json.loads(self.rfile.read(length).decode("utf-8"))
             filename = Path(str(body.get("filename", ""))).name
             suffix = Path(filename).suffix.lower()
-            if suffix not in {".doc", ".docx"}:
-                raise ValueError("只接受 .doc 或 .docx 文件")
+            if suffix not in WORD_SUFFIXES:
+                raise ValueError("只接受 Word 文件")
             encoded = str(body.get("contentBase64", ""))
             content = base64.b64decode(encoded, validate=True)
             if not content or len(content) > 25_000_000:
@@ -81,7 +83,7 @@ class DemoHandler(SimpleHTTPRequestHandler):
                 uploaded.write_bytes(content)
                 if route == "/api/import-standard":
                     source = uploaded
-                    if suffix == ".doc":
+                    if suffix in BINARY_WORD_SUFFIXES:
                         source = Path(folder) / f"{Path(filename).stem}.docx"
                         convert_doc_to_docx(uploaded, source)
                     bundle, report = build_bundle(QC_TEMPLATE, source)

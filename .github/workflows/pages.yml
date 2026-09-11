@@ -25,7 +25,8 @@ jobs:
       - name: Prepare browser-only site
         run: |
           mkdir -p site
-          cp ui/static/index.html ui/static/app.js ui/static/styles.css ui/static/browser-runtime.js ui/static/qc-template.json site/
+          cp ui/static/index.html ui/static/app.js ui/static/styles.css ui/static/browser-runtime.js ui/static/legacy-word-parser.js ui/static/qc-template.json site/
+          cp -R ui/static/vendor site/
           cp build.py site/
           cp -R diff domain mapping parsers render templates site/
           touch site/.nojekyll

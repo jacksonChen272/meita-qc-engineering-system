@@ -10,7 +10,7 @@
 
 GitHub Pages：<https://jacksonchen272.github.io/meita-qc-engineering-system/>
 
-線上版已內建 QC 母版結構。第一次開啟時只需選擇外來標準 `.docx`；若有同產品舊版 QC 工程圖，也可選填舊版 `.docx` 以延續文件資料。上傳的文件會由 Pyodide 在目前瀏覽器的暫存記憶體中解析，不會傳送至 GitHub；重新整理或關閉分頁後資料即清除。舊式 `.doc` 需要先用 Microsoft Word 另存為 `.docx`，或改用下方桌面版。
+線上版已內建 QC 母版結構。第一次開啟時只需選擇外來標準 `.docx`；若有同產品舊版 QC 工程圖，也可選填 `.doc`、`.docx`、`.docm` 或 Word 範本以延續文件資料。文件會在目前瀏覽器的暫存記憶體中解析，不會傳送至 GitHub；重新整理或關閉分頁後資料即清除。加密、損毀或早於 Word 97 的舊檔，需先用 Microsoft Word 另存為 `.docx`。
 
 ## 啟動
 

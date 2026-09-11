@@ -15,6 +15,7 @@ const path = require("path");
   await page.waitForSelector(".online-setup-page", { timeout: 30000 });
   if (await page.locator("[data-online-qc]").count()) throw new Error("線上版仍要求使用者重複匯入 QC 母版");
   if (!(await page.locator(".online-setup-hero").innerText()).includes("QC 母版已內建")) throw new Error("線上版沒有顯示內建母版");
+  if (!(await page.locator("[data-online-legacy]").getAttribute("accept")).includes(".doc,")) throw new Error("舊版 QC 尚未支援舊式 .doc");
   await page.screenshot({ path: path.join(outputDir, "qa-online-setup.png") });
   await page.setInputFiles("[data-online-rnd]", path.join(__dirname, "..", "input", "rnd-standard.docx"));
   await page.locator("[data-online-start]").click();

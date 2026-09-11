@@ -10,6 +10,8 @@ from .docx_utils import DocxDocument, clean_text
 
 ROOT = Path(__file__).resolve().parents[1]
 CONVERT_SCRIPT = ROOT / "scripts" / "convert_legacy_doc.ps1"
+OPEN_XML_SUFFIXES = {".docx", ".docm", ".dotx", ".dotm"}
+BINARY_WORD_SUFFIXES = {".doc", ".dot", ".wbk"}
 
 
 def _key(value: str) -> str:
@@ -159,10 +161,10 @@ def convert_doc_to_docx(source: Path, target: Path) -> None:
 def parse_legacy_metadata(path: str | Path) -> dict:
     source = Path(path)
     suffix = source.suffix.lower()
-    if suffix == ".docx":
+    if suffix in OPEN_XML_SUFFIXES:
         return _metadata_from_docx(source)
-    if suffix != ".doc":
-        raise ValueError("只接受 .doc 或 .docx 舊版文件")
+    if suffix not in BINARY_WORD_SUFFIXES:
+        raise ValueError("只接受 Word 的 .doc、.docx、.docm、.dot、.dotx、.dotm 或 .wbk 舊版文件")
     with tempfile.TemporaryDirectory(prefix="qc-legacy-convert-") as folder:
         converted = Path(folder) / "legacy.docx"
         convert_doc_to_docx(source, converted)

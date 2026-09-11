@@ -20,6 +20,11 @@
     return String(file.name || "document.docx").replace(/[\\/]/g, "_");
   }
 
+  function safeOpenXmlName(file, prefix) {
+    const stem = safeFileName(file).replace(/\.[^.]+$/, "") || "document";
+    return `${prefix ? `${prefix}-` : ""}${stem}.docx`;
+  }
+
   async function initialize(onStatus) {
     if (readyPromise) return readyPromise;
     readyPromise = (async () => {
@@ -45,9 +50,15 @@
   }
 
   async function writeDocument(file, prefix) {
-    if (!file || !file.name.toLowerCase().endsWith(".docx")) throw new Error("GitHub 線上版只接受 .docx；舊式 .doc 請先用 Word 另存為 .docx。");
+    if (!file || !file.name.toLowerCase().endsWith(".docx")) throw new Error("外來標準文件目前只接受 .docx。");
     const path = `/tmp/${prefix ? `${prefix}-` : ""}${safeFileName(file)}`;
     pyodide.FS.writeFile(path, new Uint8Array(await file.arrayBuffer()));
+    return path;
+  }
+
+  function writeOpenXmlBytes(file, prefix, bytes) {
+    const path = `/tmp/${safeOpenXmlName(file, prefix)}`;
+    pyodide.FS.writeFile(path, bytes);
     return path;
   }
 
@@ -95,9 +106,20 @@ json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
   }
 
   async function importLegacy(file, onStatus) {
-    await initialize(onStatus);
     onStatus?.("正在解析舊版 QC 工程圖…");
-    const legacyPath = await writeDocument(file, "legacy");
+    if (!file) throw new Error("請選擇舊版 QC 工程圖。");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const parser = window.QcLegacyWordParser;
+    if (!parser) throw new Error("Word 檔案解析元件未載入，請重新整理後再試。");
+    const format = parser.detectFormat(file.name, bytes);
+    if (format === "binary") {
+      return { ok: true, metadata: parser.parseBinary(bytes, window.docToText) };
+    }
+    if (format !== "openxml") {
+      throw new Error("不支援此檔案；請選擇 Word 的 .doc、.docx、.docm、.dot、.dotx 或 .dotm 文件。");
+    }
+    await initialize(onStatus);
+    const legacyPath = writeOpenXmlBytes(file, "legacy", bytes);
     pyodide.globals.set("legacy_path_js", legacyPath);
     const output = await pyodide.runPythonAsync(`
 import json

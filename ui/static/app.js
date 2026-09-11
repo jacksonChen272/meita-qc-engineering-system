@@ -19,6 +19,7 @@
     incubation: "保溫與微生物",
     coa: "COA 開立",
   };
+  const LEGACY_WORD_ACCEPT = ".doc,.docx,.docm,.dot,.dotx,.dotm,.wbk,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-word.document.macroEnabled.12,application/vnd.openxmlformats-officedocument.wordprocessingml.template,application/vnd.ms-word.template.macroEnabled.12";
 
   const state = {
     data: null,
@@ -208,7 +209,7 @@
     const rnd = state.data.rnd;
     const product = rnd.product || {};
     const upload = state.standardImport || {};
-    const formats = state.onlineMode ? ".docx" : ".doc／.docx";
+    const formats = state.onlineMode ? ".docx" : "各版本 Word";
     return `<section class="standard-import-panel">
       <div class="standard-import-copy">
         <p class="eyebrow">外來文件</p>
@@ -217,7 +218,7 @@
       </div>
       <label class="standard-file-field">
         <span>${upload.loading ? "解析中，請稍候…" : `選擇標準文件（${formats}）`}</span>
-        <input type="file" accept="${state.onlineMode ? ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : ".doc,.docx,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"}" data-standard-file ${upload.loading ? "disabled" : ""}>
+        <input type="file" accept="${state.onlineMode ? ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : LEGACY_WORD_ACCEPT}" data-standard-file ${upload.loading ? "disabled" : ""}>
       </label>
       <div class="source-facts">
         <div><span>目前產品</span><strong>${esc(product.name || "待匯入")}</strong></div>
@@ -518,7 +519,7 @@
           <label><span>品質管制標準書編號</span><input type="text" data-meta-field="documentNumber" value="${esc(meta.documentNumber)}" placeholder="例如 02-0200-033"></label>
           <label><span>權責／適用單位</span><select data-meta-field="unit">${["生產一課", "生產二課", "生產三課"].map(unit => `<option ${unit === meta.unit ? "selected" : ""}>${unit}</option>`).join("")}</select></label>
           <label class="revision-content-field"><span>本次修訂內容摘要</span><input type="text" data-meta-field="revisionContent" value="${esc(meta.revisionContent)}" placeholder="請輸入本次修訂內容"></label>
-          <label class="legacy-file-field"><span>匯入舊版（選填${state.onlineMode ? "，線上版限 .docx" : ""}）</span><input type="file" accept="${state.onlineMode ? ".docx" : ".doc,.docx"}" data-legacy-file></label>
+          <label class="legacy-file-field"><span>匯入舊版（選填，支援各版本 Word）</span><input type="file" accept="${LEGACY_WORD_ACCEPT}" data-legacy-file></label>
         </div>
         <div class="metadata-summary">
           <span>版本 <strong>2.0</strong></span><span>制定日期 <strong>${esc(meta.establishedDate)}</strong></span><span>本次版次 <strong>${esc(meta.currentRevision)}</strong></span><span>修訂日期 <strong>${esc(meta.revisionDate)}</strong></span><span>發行日期 <strong>${esc(meta.issueDate)}</strong></span><span>檢討週期 <strong>1 年</strong></span>
@@ -633,6 +634,9 @@
         if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
       }
       const old = result.metadata;
+      if (!old || ![old.documentNumber, old.establishedDate, old.latestRevision].some(Boolean)) {
+        throw new Error("找不到第一頁文件資料或修訂紀錄，請確認選擇的是舊版 QC 工程圖。");
+      }
       const allowedUnits = ["生產一課", "生產二課", "生產三課"];
       state.documentMeta.documentNumber = old.documentNumber || state.documentMeta.documentNumber;
       state.documentMeta.establishedDate = old.establishedDate || state.documentMeta.establishedDate;
@@ -641,7 +645,9 @@
       state.documentMeta.currentRevision = incrementRevision(old.latestRevision);
       state.documentMeta.revisionContent = "";
       state.documentMeta.importedFileName = file.name;
-      state.documentMeta.importMessage = `已匯入 ${file.name}；沿用制定日期，現行版次由 ${old.latestRevision} 延伸為 ${state.documentMeta.currentRevision}。`;
+      state.documentMeta.importMessage = old.latestRevision
+        ? `已匯入 ${file.name}；沿用制定日期，現行版次由 ${old.latestRevision} 延伸為 ${state.documentMeta.currentRevision}。`
+        : `已匯入 ${file.name}；已帶入可辨識的舊版文件資料。`;
       state.documentMeta.importError = false;
     } catch (error) {
       state.documentMeta.importMessage = `匯入失敗：${error.message}`;
@@ -836,7 +842,7 @@
       {
         menu: "首頁／舊版", title: "文件首頁與舊版匯入", location: "工程圖預覽 → 文件首頁資料", demo: "metadata", target: "preview", targetLabel: "編輯首頁",
         intro: "這裡控制第一頁文件資料。標準書編號與修訂內容由使用者輸入，權責單位與適用範圍共用生產課別；舊版 QC 工程圖只用來延續文件履歷。",
-        steps: ["輸入品質管制標準書編號。", "選擇生產一課、二課或三課。", "輸入本次修訂內容。", "若有舊版 QC 工程圖，再選擇舊版 .doc／.docx 匯入。", "核對制定、修訂、發行日期及現行版次。"],
+        steps: ["輸入品質管制標準書編號。", "選擇生產一課、二課或三課。", "輸入本次修訂內容。", "若有舊版 QC 工程圖，可直接選擇舊式 .doc、新版 .docx 或其他 Word 格式匯入。", "核對制定、修訂、發行日期及現行版次。"],
         system: ["版本欄固定為 2.0，檢討週期固定 1 年。", "有舊版時沿用制定日期，現行版次增加 0.1。", "發行日期為修訂日期後第一個工作日。"],
         check: "沒有舊版時保持「新制訂」；有舊版時應看到舊版檔名與版次延伸訊息。",
       },
@@ -1030,10 +1036,10 @@
         <section class="online-setup-panel">
           <div class="online-file-grid">
             <label class="online-file-card required"><span class="online-file-number">1</span><div><h2>外來標準文件 <em>必要</em></h2><p>研發或委託廠商提供的產品標準</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-rnd></label>
-            <label class="online-file-card"><span class="online-file-number">2</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>用來延續文件編號、日期、版次與修訂履歷</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" data-online-legacy></label>
+            <label class="online-file-card"><span class="online-file-number">2</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>支援舊式 .doc、新版 .docx、巨集文件與 Word 範本</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept="${LEGACY_WORD_ACCEPT}" data-online-legacy></label>
           </div>
           <button class="btn btn-accent online-start-button" type="button" data-online-start disabled>開始解析並建立工程圖</button>
-          <p class="online-setup-status" data-online-status>線上版支援 .docx；若是舊式 .doc，請先用 Word 另存為 .docx。</p>
+          <p class="online-setup-status" data-online-status>外來標準請使用 .docx；舊版 QC 可直接選擇各版本 Word 文件。</p>
         </section>
         <div class="online-privacy-note"><strong>檔案隱私：</strong>文件只會進入此分頁的暫存記憶體，關閉或重新整理後即清除。網站載入解析核心時需要網路連線。</div>
       </main>`;
