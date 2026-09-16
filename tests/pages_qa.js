@@ -19,6 +19,7 @@ const path = require("path");
   if (!setupText.includes("營養品母版") || !setupText.includes("醬包母版")) throw new Error("母版名稱不完整");
   if (!(await page.locator("[data-online-start]").isDisabled())) throw new Error("尚未選母版時即可開始");
   if (!(await page.locator("[data-online-legacy]").getAttribute("accept")).includes(".doc,")) throw new Error("舊版 QC 尚未支援舊式 .doc");
+  if (!(await page.locator("[data-online-rnd]").getAttribute("accept")).includes(".pdf")) throw new Error("外來標準尚未支援 PDF");
   await page.screenshot({ path: path.join(outputDir, "qa-online-setup.png") });
   await page.locator('[data-online-template][value="nutrition"]').check();
   await page.setInputFiles("[data-online-rnd]", path.join(__dirname, "..", "input", "rnd-standard.docx"));

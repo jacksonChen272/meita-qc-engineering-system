@@ -2,17 +2,20 @@
   "use strict";
 
   const PYODIDE_INDEX = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
+  const PDFJS_MODULE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs";
+  const PDFJS_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
   const PYTHON_SOURCES = [
     "build.py",
     "diff/__init__.py", "diff/compare.py", "diff/normalize.py",
     "domain/__init__.py", "domain/control_item.py", "domain/process_step.py", "domain/product.py", "domain/source_trace.py",
     "mapping/__init__.py", "mapping/parameter_mapping.py", "mapping/process_mapping.py",
-    "parsers/__init__.py", "parsers/docx_utils.py", "parsers/legacy_doc_metadata.py", "parsers/qc_template_parser.py", "parsers/rnd_docx_parser.py",
+    "parsers/__init__.py", "parsers/docx_utils.py", "parsers/legacy_doc_metadata.py", "parsers/qc_template_parser.py", "parsers/rnd_docx_parser.py", "parsers/rnd_pdf_parser.py",
     "render/__init__.py", "render/flow_renderer.py", "render/pagination.py", "render/qc_html_renderer.py",
     "templates/__init__.py", "templates/qc_template.py",
   ];
 
   let readyPromise = null;
+  let pdfJsPromise = null;
   let pyodide = null;
   const qcTemplatePromises = new Map();
   const QC_TEMPLATE_FILES = {
@@ -27,6 +30,71 @@
   function safeOpenXmlName(file, prefix) {
     const stem = safeFileName(file).replace(/\.[^.]+$/, "") || "document";
     return `${prefix ? `${prefix}-` : ""}${stem}.docx`;
+  }
+
+  function isPdf(file) {
+    return String(file?.name || "").toLowerCase().endsWith(".pdf") || file?.type === "application/pdf";
+  }
+
+  async function loadPdfJs() {
+    if (!pdfJsPromise) {
+      pdfJsPromise = import(PDFJS_MODULE).then(module => {
+        module.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+        return module;
+      });
+    }
+    return pdfJsPromise;
+  }
+
+  function textLine(items) {
+    const ordered = items.sort((left, right) => left.x - right.x);
+    let output = "";
+    let previous = null;
+    for (const item of ordered) {
+      const value = String(item.text || "").trim();
+      if (!value) continue;
+      if (previous) {
+        const gap = item.x - (previous.x + previous.width);
+        if (gap > Math.max(1.2, Math.min(previous.height, item.height) * 0.1)) output += " ";
+      }
+      output += value;
+      previous = item;
+    }
+    return output.trim();
+  }
+
+  async function extractPdfText(file, onStatus) {
+    const pdfjs = await loadPdfJs();
+    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
+    const pdf = await loadingTask.promise;
+    const pages = [];
+    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+      onStatus?.(`正在擷取 PDF 第 ${pageNumber}／${pdf.numPages} 頁…`);
+      const page = await pdf.getPage(pageNumber);
+      const content = await page.getTextContent();
+      const rows = [];
+      for (const item of content.items) {
+        if (!item.str || !item.transform) continue;
+        const x = Number(item.transform[4] || 0);
+        const y = Number(item.transform[5] || 0);
+        const height = Math.max(1, Math.abs(Number(item.height || item.transform[3] || 1)));
+        let row = rows.find(candidate => Math.abs(candidate.y - y) <= Math.max(2, height * 0.22));
+        if (!row) {
+          row = { y, items: [] };
+          rows.push(row);
+        }
+        row.items.push({ x, width: Number(item.width || 0), height, text: item.str });
+      }
+      const lines = rows.sort((left, right) => right.y - left.y).map(row => textLine(row.items)).filter(Boolean);
+      pages.push(`===PAGE ${pageNumber}===\n${lines.join("\n")}`);
+      page.cleanup();
+    }
+    await loadingTask.destroy();
+    const extracted = pages.join("\n");
+    if (extracted.replace(/===PAGE\s+\d+===/g, "").trim().length < 30) {
+      throw new Error("PDF 沒有可讀取的文字；若是掃描檔，請先完成 OCR 後再匯入。");
+    }
+    return extracted;
   }
 
   async function initialize(onStatus) {
@@ -78,10 +146,25 @@
     return qcTemplatePromises.get(safeKey);
   }
 
-  async function buildBundle(rndFile, templateKey, onStatus) {
+  async function buildFromFile(rndFile, templateKey, onStatus) {
     await initialize(onStatus);
     onStatus?.("正在使用內建母版解析外來標準…");
     const qcJson = await loadQcTemplate(templateKey);
+    if (isPdf(rndFile)) {
+      const pdfText = await extractPdfText(rndFile, onStatus);
+      pyodide.globals.set("qc_json_js", qcJson);
+      pyodide.globals.set("pdf_text_js", pdfText);
+      pyodide.globals.set("pdf_name_js", safeFileName(rndFile));
+      const output = await pyodide.runPythonAsync(`
+import json
+from build import build_bundle_from_rnd
+from parsers import parse_rnd_pdf_text
+_rnd = parse_rnd_pdf_text(pdf_text_js, pdf_name_js)
+_bundle, _report = build_bundle_from_rnd(json.loads(qc_json_js), _rnd)
+json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
+`);
+      return JSON.parse(output);
+    }
     const rndPath = await writeDocument(rndFile, "");
     pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);
@@ -95,20 +178,12 @@ json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
     return JSON.parse(output);
   }
 
+  async function buildBundle(rndFile, templateKey, onStatus) {
+    return buildFromFile(rndFile, templateKey, onStatus);
+  }
+
   async function importStandard(file, templateKey, onStatus) {
-    await initialize(onStatus);
-    const qcJson = await loadQcTemplate(templateKey);
-    const rndPath = await writeDocument(file, "");
-    pyodide.globals.set("qc_json_js", qcJson);
-    pyodide.globals.set("rnd_path_js", rndPath);
-    const output = await pyodide.runPythonAsync(`
-import json
-from pathlib import Path
-from build import build_bundle_from_qc
-_bundle, _report = build_bundle_from_qc(json.loads(qc_json_js), Path(rnd_path_js))
-json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
-`);
-    return JSON.parse(output);
+    return buildFromFile(file, templateKey, onStatus);
   }
 
   async function importLegacy(file, onStatus) {

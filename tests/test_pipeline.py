@@ -15,7 +15,7 @@ RND_FIXTURE = next(iter(sorted((ROOT / "input").glob("*-AF_*.docx"))), None)
 
 from diff import align_display_value, build_diff, values_equal
 from mapping import map_parameters
-from parsers import parse_legacy_metadata, parse_qc_template, parse_rnd_document
+from parsers import parse_legacy_metadata, parse_qc_template, parse_rnd_document, parse_rnd_pdf_text
 from render import build_preview_model, validate_pagination
 
 
@@ -59,6 +59,60 @@ class LegacyMetadataTests(unittest.TestCase):
         self.assertEqual(metadata["unit"], "生產二課")
         self.assertEqual(metadata["latestRevision"], "6.0")
         self.assertEqual(metadata["revisionHistory"][0]["revisionDate"], "113.06.06")
+
+
+class PdfTextParserTests(unittest.TestCase):
+    def test_text_pdf_preserves_sections_values_and_source_file(self) -> None:
+        text = """
+===PAGE 1===
+二課-測試產品-AF_AR_A_2-1.10 2025.11.03
+===PAGE 6===
+充填及殺菌
+1. 充填條件
+濾網規格 60 mesh
+罐中心溫度 81 ± 3 °C
+均質壓力 200 ± 25 bar/70 ±2 °C
+填充量 294-305 公克 (含空罐重)
+2. 殺菌包裝條件
+昇溫時間 17 分鐘
+上釜溫度 X
+殺菌溫度 121°C
+殺菌時間 15 分鐘
+昇溫 4 rpm
+旋轉速度 殺菌 4 rpm
+冷卻 8 rpm
+保存期限 15 個月
+產品檢驗標準
+===PAGE 7===
+1. 半成品 (調配桶)
+項目 單位 下限 上限
+pH 值 7.5 8.1
+標準書編號：10-0209-013
+===PAGE 8===
+2. 成品規格：(內規)
+項目 單位 下限 上限
+內容量-重量 g 252 263 (特食，不能修改)
+色澤 正常
+標準書編號：10-0209-014
+===PAGE 9===
+3. 保溫試驗及微生物檢驗
+項目 條件
+37℃、10 天
+微生物檢驗 37℃、10 天；需檢查合格
+===PAGE 10===
+4. COA 開立
+成品檢查 規格值
+淨重(公克) 252 ~ 263
+"""
+        rnd = parse_rnd_pdf_text(text, "二課-測試產品-AF_AR_A_2-1.10 2025.11.03.pdf")
+
+        self.assertEqual(rnd["product"]["version"], "1.10")
+        self.assertEqual(rnd["product"]["sourceFile"], "二課-測試產品-AF_AR_A_2-1.10 2025.11.03.pdf")
+        by_name = {(item["category"], item["name"]): item for item in rnd["parameters"]}
+        self.assertEqual(by_name[("filling", "濾網規格")]["value"], "60 mesh")
+        self.assertEqual(by_name[("sterilization", "上釜溫度")]["classification"], "REVIEW_REQUIRED")
+        self.assertEqual(by_name[("finished", "內容量-重量")]["classification"], "LOCKED")
+        self.assertEqual(by_name[("coa", "淨重(公克)")]["value"], "252–263")
 
 
 @unittest.skipUnless(

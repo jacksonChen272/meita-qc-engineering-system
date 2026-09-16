@@ -20,6 +20,8 @@
     coa: "COA 開立",
   };
   const LEGACY_WORD_ACCEPT = ".doc,.docx,.docm,.dot,.dotx,.dotm,.wbk,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-word.document.macroEnabled.12,application/vnd.openxmlformats-officedocument.wordprocessingml.template,application/vnd.ms-word.template.macroEnabled.12";
+  const PDF_ACCEPT = ".pdf,application/pdf";
+  const ONLINE_STANDARD_ACCEPT = `.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,${PDF_ACCEPT}`;
   const QC_TEMPLATES = {
     nutrition: {
       label: "營養品母版",
@@ -220,16 +222,16 @@
     const rnd = state.data.rnd;
     const product = rnd.product || {};
     const upload = state.standardImport || {};
-    const formats = state.onlineMode ? ".docx" : "各版本 Word";
+    const formats = state.onlineMode ? ".docx／.pdf" : "各版本 Word／PDF";
     return `<section class="standard-import-panel">
       <div class="standard-import-copy">
         <p class="eyebrow">外來文件</p>
         <h2>匯入外來標準文件</h2>
-        <p>選擇研發或委託廠商提供的產品標準 Word；系統會重新解析、比對 QC 母版並更新下方差異。${state.onlineMode ? "檔案只在目前瀏覽器中處理，不會上傳至 GitHub。" : ""}</p>
+        <p>選擇研發或委託廠商提供的產品標準 Word 或 PDF（PDF 需含可選取文字）；系統會重新解析、比對 QC 母版並更新下方差異。${state.onlineMode ? "檔案只在目前瀏覽器中處理，不會上傳至 GitHub。" : ""}</p>
       </div>
       <label class="standard-file-field">
         <span>${upload.loading ? "解析中，請稍候…" : `選擇標準文件（${formats}）`}</span>
-        <input type="file" accept="${state.onlineMode ? ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document" : LEGACY_WORD_ACCEPT}" data-standard-file ${upload.loading ? "disabled" : ""}>
+        <input type="file" accept="${state.onlineMode ? ONLINE_STANDARD_ACCEPT : `${LEGACY_WORD_ACCEPT},${PDF_ACCEPT}`}" data-standard-file ${upload.loading ? "disabled" : ""}>
       </label>
       <div class="source-facts">
         <div><span>目前產品</span><strong>${esc(product.name || "待匯入")}</strong></div>
@@ -675,7 +677,8 @@
     render();
     try {
       let result;
-      if (state.onlineMode) {
+      const pdfFile = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+      if (state.onlineMode || pdfFile) {
         result = await window.QcBrowserRuntime.importStandard(file, state.templateKey, message => {
           state.standardImport.message = message;
           render();
@@ -810,7 +813,7 @@
   function tutorialDemo(kind) {
     const demos = {
       overview: `<div class="demo-overview"><div><b>1</b><span>匯入標準</span></div><i>→</i><div><b>2</b><span>確認差異</span></div><i>→</i><div><b>3</b><span>調整預覽</span></div><i>→</i><div><b>4</b><span>輸出檔案</span></div></div>`,
-      standard: `<div class="demo-upload"><div class="demo-word">W</div><div><small>外來標準文件</small><strong>選擇標準文件（.doc／.docx）</strong><span>力增 洗腎配方(杏仁).docx</span></div><button type="button">選擇檔案</button></div><div class="demo-success">✓ 已匯入文件；完成規格解析與自動對應。</div>`,
+      standard: `<div class="demo-upload"><div class="demo-word">W</div><div><small>外來標準文件</small><strong>選擇標準文件（Word／PDF）</strong><span>力增 洗腎配方(杏仁).pdf</span></div><button type="button">選擇檔案</button></div><div class="demo-success">✓ 已匯入文件；完成規格解析與自動對應。</div>`,
       filters: `<div class="demo-statuses"><span><b>12</b>變更</span><span><b>4</b>需要確認</span><span><b>4</b>鎖定</span><span><b>8</b>研發缺少</span></div><div class="demo-filters"><b>全部</b><span>只看變更</span><span>需要確認</span><span>鎖定</span></div>`,
       decision: `<div class="demo-values"><div><small>母版</small><b>13～20</b></div><div><small>研發</small><b>13–20°C</b></div><div><small>目前建議</small><b>13～20</b></div></div><div class="demo-decisions"><button>採用研發值</button><button class="selected">保留母版</button><button>人工輸入</button></div>`,
       metadata: `<div class="demo-form"><label>品質管制標準書編號<strong>02-0200-033</strong></label><label>權責／適用單位<strong>生產二課⌄</strong></label><label>修訂內容<strong>依外來標準修訂</strong></label><label>舊版 QC 工程圖<strong>選擇舊版檔案…</strong></label></div><div class="demo-success">✓ 沿用制定日期，現行版次由 2.0 延伸為 2.1。</div>`,
@@ -826,15 +829,15 @@
       {
         menu: "操作總覽", title: "系統操作總覽", location: "開始使用前先看這一章", demo: "overview", target: "diff", targetLabel: "開始製作",
         intro: "這套系統以既有 QC 母版為格式與欄位依據，再把外來標準中的產品規格帶入比對。使用者負責確認差異，系統負責重組流程、分頁及產生工程圖。",
-        steps: ["先選擇營養品母版或醬包母版。", "匯入外來標準 Word。", "逐項確認系統找出的 QC 差異。", "到工程圖預覽填寫首頁、調整流程。", "檢查完成後列印、另存 PDF 或 HTML。"],
+        steps: ["先選擇營養品母版或醬包母版。", "匯入外來標準 Word 或 PDF。", "逐項確認系統找出的 QC 差異。", "到工程圖預覽填寫首頁、調整流程。", "檢查完成後列印、另存 PDF 或 HTML。"],
         system: ["不會只因數字相近就判定相同。", "CCP／OPRP 與鎖定項目會保留保護規則。", "相鄰且內容相同的儲存格會依母版規則合併。"],
         check: "開始前請先判斷產品應使用哪一個母版，並準備外來標準文件；若有同產品舊版 QC 工程圖，也一併準備。",
       },
       {
         menu: "外來標準", title: "匯入外來標準文件", location: "差異確認 → 匯入外來標準文件", demo: "standard", target: "diff", targetLabel: "前往匯入",
         intro: "外來標準是研發或委託廠商提供的產品標準。匯入後，系統會重新辨識產品、規格、設備與流程文字，並與 QC 母版進行對應。",
-        steps: ["按「選擇標準文件」。", "選擇 .doc 或 .docx 檔案。", "等待解析完成，不要關閉或重新整理頁面。", "核對目前產品、檔名、規格數量及設備數量。"],
-        system: ["每次重新匯入會重建差異結果與工程圖預覽。", "先前尚未儲存的人工選擇與流程調整會重設。", "此處不要匯入舊版 QC 工程圖。"],
+        steps: ["按「選擇標準文件」。", "選擇 Word 或含可選取文字的 PDF 檔案。", "等待解析完成，不要關閉或重新整理頁面。", "核對目前產品、檔名、規格數量及設備數量。"],
+        system: ["每次重新匯入會重建差異結果與工程圖預覽。", "先前尚未儲存的人工選擇與流程調整會重設。", "掃描圖片型 PDF 必須先做 OCR，系統才讀得到文字。", "此處不要匯入舊版 QC 工程圖。"],
         check: "看到綠色「已匯入」訊息，而且解析結果不是 0 項，才代表匯入完成。",
       },
       {
@@ -1054,13 +1057,13 @@
             </div>
           </fieldset>
           <div class="online-file-grid">
-            <label class="online-file-card required"><span class="online-file-number">2</span><div><h2>外來標準文件 <em>必要</em></h2><p>研發或委託廠商提供的產品標準</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept="${serverMode ? LEGACY_WORD_ACCEPT : ".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"}" data-online-rnd></label>
+            <label class="online-file-card required"><span class="online-file-number">2</span><div><h2>外來標準文件 <em>必要</em></h2><p>產品標準 Word／PDF；掃描 PDF 需先 OCR</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept="${serverMode ? `${LEGACY_WORD_ACCEPT},${PDF_ACCEPT}` : ONLINE_STANDARD_ACCEPT}" data-online-rnd></label>
             <label class="online-file-card"><span class="online-file-number">3</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>支援舊式 .doc、新版 .docx、巨集文件與 Word 範本</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept="${LEGACY_WORD_ACCEPT}" data-online-legacy></label>
           </div>
           <button class="btn btn-accent online-start-button" type="button" data-online-start disabled>開始解析並建立工程圖</button>
-          <p class="online-setup-status" data-online-status>請先選母版，再選擇外來標準${serverMode ? " Word 文件" : " .docx"}。</p>
+          <p class="online-setup-status" data-online-status>請先選母版，再選擇外來標準${serverMode ? " Word 或 PDF 文件" : " .docx 或 .pdf"}。</p>
         </section>
-        <div class="online-privacy-note"><strong>檔案隱私：</strong>${serverMode ? "文件只會送到目前這台公司網路主機的暫存資料夾，解析完成即刪除。" : "文件只會進入此分頁的暫存記憶體，關閉或重新整理後即清除。網站載入解析核心時需要網路連線。"}</div>
+        <div class="online-privacy-note"><strong>檔案隱私：</strong>${serverMode ? "Word 文件只會送到目前這台公司網路主機的暫存資料夾，解析完成即刪除；PDF 直接在瀏覽器內處理。" : "文件只會進入此分頁的暫存記憶體，關閉或重新整理後即清除。網站載入解析核心時需要網路連線。"}</div>
       </main>`;
   }
 
@@ -1088,7 +1091,9 @@
       status.classList.remove("error");
       try {
         let result;
-        if (serverMode) {
+        const pdfFile = rndFile.name.toLowerCase().endsWith(".pdf") || rndFile.type === "application/pdf";
+        const browserParsed = !serverMode || pdfFile;
+        if (serverMode && !pdfFile) {
           status.textContent = "正在使用所選母版解析外來標準…";
           const contentBase64 = await readFileAsBase64(rndFile);
           const response = await fetch("/api/import-standard", {
@@ -1106,9 +1111,9 @@
           onlineMode: !serverMode,
           templateKey,
           fileName: rndFile.name,
-          message: serverMode
-            ? `已完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；伺服器暫存檔已刪除。`
-            : `已在瀏覽器完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；檔案未上傳。`,
+          message: browserParsed
+            ? `已在瀏覽器完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；檔案未上傳。`
+            : `已完成 ${result.report.rndParameters} 項規格解析與 ${result.report.autoMapped} 項自動對應；伺服器暫存檔已刪除。`,
         });
         if (legacyFile) await importLegacyFile(legacyFile);
       } catch (error) {

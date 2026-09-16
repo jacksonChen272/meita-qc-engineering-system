@@ -19,8 +19,7 @@ def write_json(path: Path, data: dict) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def build_bundle_from_qc(qc: dict, rnd_path: Path) -> tuple[dict, dict]:
-    rnd = parse_rnd_document(rnd_path)
+def build_bundle_from_rnd(qc: dict, rnd: dict) -> tuple[dict, dict]:
     process_mapping = map_processes(rnd, qc)
     parameter_mapping = map_parameters(rnd, qc)
     mapping = {"process": process_mapping, "parameters": parameter_mapping}
@@ -38,6 +37,10 @@ def build_bundle_from_qc(qc: dict, rnd_path: Path) -> tuple[dict, dict]:
         "pages": preview["pagination"]["pageCount"],
     }
     return bundle, report
+
+
+def build_bundle_from_qc(qc: dict, rnd_path: Path) -> tuple[dict, dict]:
+    return build_bundle_from_rnd(qc, parse_rnd_document(rnd_path))
 
 
 def build_bundle(qc_path: Path, rnd_path: Path) -> tuple[dict, dict]:
