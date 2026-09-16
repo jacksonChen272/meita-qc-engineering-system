@@ -10,13 +10,16 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
-from build import build_bundle
+from build import build_bundle_from_qc
 from parsers import convert_doc_to_docx, parse_legacy_metadata
 
 
 ROOT = Path(__file__).resolve().parent
 STATIC = ROOT / "ui" / "static"
-QC_TEMPLATE = ROOT / "input" / "qc-template.docx"
+QC_TEMPLATES = {
+    "nutrition": STATIC / "qc-template-nutrition.json",
+    "sauce_pack": STATIC / "qc-template-sauce-pack.json",
+}
 WORD_SUFFIXES = {".doc", ".docx", ".docm", ".dot", ".dotx", ".dotm", ".wbk"}
 BINARY_WORD_SUFFIXES = {".doc", ".dot", ".wbk"}
 
@@ -82,11 +85,16 @@ class DemoHandler(SimpleHTTPRequestHandler):
                 uploaded = Path(folder) / filename
                 uploaded.write_bytes(content)
                 if route == "/api/import-standard":
+                    template_key = str(body.get("templateKey", ""))
+                    template_path = QC_TEMPLATES.get(template_key)
+                    if template_path is None or not template_path.exists():
+                        raise ValueError("請先選擇有效的 QC 工程圖母版")
                     source = uploaded
                     if suffix in BINARY_WORD_SUFFIXES:
                         source = Path(folder) / f"{Path(filename).stem}.docx"
                         convert_doc_to_docx(uploaded, source)
-                    bundle, report = build_bundle(QC_TEMPLATE, source)
+                    qc = json.loads(template_path.read_text(encoding="utf-8"))
+                    bundle, report = build_bundle_from_qc(qc, source)
                     if not bundle["rnd"].get("parameterCount"):
                         raise ValueError("找不到可解析的產品規格或標準項目")
                     self._send_json(200, {"ok": True, "filename": filename, "data": bundle, "report": report})
@@ -110,8 +118,6 @@ def main() -> None:
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8876)
     args = parser.parse_args()
-    if not (STATIC / "data.json").exists():
-        raise SystemExit("data.json does not exist; run python build.py first")
     mimetypes.add_type("application/json", ".json")
     server = ThreadingHTTPServer((args.host, args.port), DemoHandler)
     print(f"QC Demo running at http://{args.host}:{args.port}")

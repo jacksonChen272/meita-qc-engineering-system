@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -17,13 +18,26 @@ def strip_control(control: dict) -> None:
     control.pop("source_row_index", None)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Export a sanitized QC master for the static website.")
+    parser.add_argument("--source", default="input/qc-template.docx")
+    parser.add_argument("--target", default="ui/static/qc-template-nutrition.json")
+    parser.add_argument("--label", default="營養品母版")
+    return parser.parse_args()
+
+
 def main() -> None:
-    source = ROOT / "input" / "qc-template.docx"
-    target = ROOT / "ui" / "static" / "qc-template.json"
+    args = parse_args()
+    source = Path(args.source)
+    target = Path(args.target)
+    if not source.is_absolute():
+        source = ROOT / source
+    if not target.is_absolute():
+        target = ROOT / target
     if not source.exists():
-        raise SystemExit("Missing input/qc-template.docx")
+        raise SystemExit(f"Missing source template: {source}")
     qc = parse_qc_template(source)
-    qc["sourceFile"] = "內建 QC 母版"
+    qc["sourceFile"] = args.label
     for step in qc["processSteps"]:
         step.pop("qc_template_source", None)
         step.pop("source_rows", None)
@@ -41,6 +55,7 @@ def main() -> None:
                     field.pop("cells", None)
             for control in row["controlItems"]:
                 strip_control(control)
+    target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(qc, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     print(f"Wrote {target.name}: {target.stat().st_size} bytes")
 

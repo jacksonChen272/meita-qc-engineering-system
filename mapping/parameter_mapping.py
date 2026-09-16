@@ -63,6 +63,72 @@ def map_parameters(rnd: dict, qc: dict) -> dict:
             }
         )
 
+    if qc.get("templateProfile") == "sauce_pack":
+        # The sauce-pack master has different process names from the nutrition
+        # master.  Match conservatively inside the relevant process family and
+        # leave anything without one exact target for manual review.
+        process_families = {
+            "half_finished": {"半成品檢驗"},
+            "finished": {"成品檢驗"},
+            "incubation": {"保溫檢驗"},
+            "workflow": {"溶解澱粉", "蕃茄糊、特砂、食鹽溶解", "加入冰醋酸加熱混合均勻", "加入澱粉水定量關蒸氣", "調配液自然冷卻"},
+            "filling": {"過濾", "充填", "封合", "內容量檢查", "耐壓檢查"},
+            "sterilization": {"水淋式殺菌", "風乾"},
+        }
+        item_aliases = {
+            "濾網規格": "濾網大小",
+            "填充量": "內容量",
+            "罐中心溫度": "中心溫度",
+            "殺菌溫度": "溫度",
+            "殺菌時間": "時間",
+            "旋轉速度-殺菌": "轉速",
+            "上釜溫度": "上釜水溫",
+        }
+        for parameter in rnd["parameters"]:
+            category = parameter["category"]
+            if category in {"formula", "coa"}:
+                results.append(
+                    {
+                        "rndParameterId": parameter["id"],
+                        "rndCategory": category,
+                        "rndName": parameter["name"],
+                        "targetProcessId": None,
+                        "targetProcessName": None,
+                        "targetControlItemId": None,
+                        "targetControlItemName": None,
+                        "mappingKind": "SOURCE_ONLY",
+                        "confidence": "NOT_APPLICABLE",
+                        "forceReview": False,
+                        "reason": "保留為來源資料；配方/COA 不直接覆寫 QC 欄位。",
+                    }
+                )
+                continue
+
+            candidates = [step for step in qc["processSteps"] if step["name"] in process_families.get(category, set())]
+            target_name = item_aliases.get(parameter["name"], parameter["name"])
+            matched = [(step, control) for step in candidates if (control := _control(step, target_name)) is not None]
+            if len(matched) == 1:
+                step, control = matched[0]
+                add(parameter, step, control, reason="醬包母版同製程類別中的同名管制項目。")
+            else:
+                add(
+                    parameter,
+                    None,
+                    None,
+                    confidence="UNMAPPED" if not matched else "AMBIGUOUS",
+                    reason="醬包母版沒有唯一可確認的同名管制項目，保留供人工確認。",
+                    force_review=True,
+                    mapping_kind="NEW_RND",
+                )
+
+        auto_mapped = [item for item in results if item["mappingKind"] == "CONTROL_ITEM" and item["confidence"] == "EXACT"]
+        return {
+            "parameterCount": len(rnd["parameters"]),
+            "autoMappedCount": len(auto_mapped),
+            "mappingCount": len(results),
+            "mappings": results,
+        }
+
     for parameter in rnd["parameters"]:
         category = parameter["category"]
         name = parameter["name"]

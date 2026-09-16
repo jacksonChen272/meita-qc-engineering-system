@@ -14,7 +14,11 @@
 
   let readyPromise = null;
   let pyodide = null;
-  let qcTemplatePromise = null;
+  const qcTemplatePromises = new Map();
+  const QC_TEMPLATE_FILES = {
+    nutrition: "qc-template-nutrition.json",
+    sauce_pack: "qc-template-sauce-pack.json",
+  };
 
   function safeFileName(file) {
     return String(file.name || "document.docx").replace(/[\\/]/g, "_");
@@ -62,20 +66,22 @@
     return path;
   }
 
-  async function loadQcTemplate() {
-    if (!qcTemplatePromise) {
-      qcTemplatePromise = fetch("qc-template.json", { cache: "no-store" }).then(response => {
-        if (!response.ok) throw new Error("網站缺少內建 QC 母版，請通知系統管理者。");
+  async function loadQcTemplate(templateKey) {
+    const safeKey = Object.prototype.hasOwnProperty.call(QC_TEMPLATE_FILES, templateKey) ? templateKey : "";
+    if (!safeKey) throw new Error("請先選擇 QC 工程圖母版。");
+    if (!qcTemplatePromises.has(safeKey)) {
+      qcTemplatePromises.set(safeKey, fetch(QC_TEMPLATE_FILES[safeKey], { cache: "no-store" }).then(response => {
+        if (!response.ok) throw new Error("網站缺少所選 QC 母版，請通知系統管理者。");
         return response.text();
-      });
+      }));
     }
-    return qcTemplatePromise;
+    return qcTemplatePromises.get(safeKey);
   }
 
-  async function buildBundle(rndFile, onStatus) {
+  async function buildBundle(rndFile, templateKey, onStatus) {
     await initialize(onStatus);
     onStatus?.("正在使用內建母版解析外來標準…");
-    const qcJson = await loadQcTemplate();
+    const qcJson = await loadQcTemplate(templateKey);
     const rndPath = await writeDocument(rndFile, "");
     pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);
@@ -89,9 +95,9 @@ json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
     return JSON.parse(output);
   }
 
-  async function importStandard(file, onStatus) {
+  async function importStandard(file, templateKey, onStatus) {
     await initialize(onStatus);
-    const qcJson = await loadQcTemplate();
+    const qcJson = await loadQcTemplate(templateKey);
     const rndPath = await writeDocument(file, "");
     pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);

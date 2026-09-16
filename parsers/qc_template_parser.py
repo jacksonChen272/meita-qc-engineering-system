@@ -54,12 +54,18 @@ def _is_header(row: RawRow) -> bool:
     return "流程記號" in texts and "工程名稱" in texts and "檢測方法" in texts
 
 
-def _field_ranges(row: RawRow) -> dict[str, tuple[int, int]]:
+def _field_ranges(row: RawRow, group_row: RawRow | None = None) -> dict[str, tuple[int, int]]:
     ranges: dict[str, tuple[int, int]] = {}
-    for cell in row.cells:
-        key = HEADER_TO_FIELD.get(_header_key(cell.text))
-        if key:
-            ranges[key] = (cell.grid_start, cell.grid_start + cell.grid_span)
+    # Some controlled QC masters use a two-row header: the five quality-control
+    # columns are named on the group row, while the manufacturing and sampling
+    # columns are named on the row below it.  Read both rows as one header map.
+    for source_row in (group_row, row):
+        if source_row is None:
+            continue
+        for cell in source_row.cells:
+            key = HEADER_TO_FIELD.get(_header_key(cell.text))
+            if key:
+                ranges[key] = (cell.grid_start, cell.grid_start + cell.grid_span)
     missing = [field for field in FIELD_ORDER if field not in ranges]
     if missing:
         raise ValueError(f"QC header is missing fields: {missing}")
@@ -133,8 +139,20 @@ def _set_control_parts(row: dict, category: str, details: str) -> None:
     payload["text"] = "\n".join(payload["lines"])
 
 
-def _apply_confirmed_master_corrections(rows: list[dict]) -> None:
+def _template_profile(tables: list) -> str:
+    """Identify the embedded master without depending on its filename."""
+    for table in tables:
+        for row in table.rows:
+            compact = _header_key("".join(cell.text for cell in row.cells))
+            if "蕃茄醬" in compact or "03-0200-005" in compact:
+                return "sauce_pack"
+    return "nutrition"
+
+
+def _apply_confirmed_master_corrections(rows: list[dict], template_profile: str) -> None:
     """Apply corrections explicitly confirmed from the plant's marked-up screenshots."""
+    if template_profile != "nutrition":
+        return
     for row in rows:
         name = row["engineeringName"].replace("\n", "")
 
@@ -233,8 +251,10 @@ def _apply_confirmed_master_corrections(rows: list[dict]) -> None:
                 control.sampling_quantity = "5批/次"
 
 
-def _keep_split_processes_together(rows: list[dict], pages: list[dict]) -> None:
+def _keep_split_processes_together(rows: list[dict], pages: list[dict], template_profile: str) -> None:
     """Keep confirmed cross-page continuations as one movable process group."""
+    if template_profile != "nutrition":
+        return
     for process_name in ("捲封檢查", "整箱打檢"):
         process_rows = [row for row in rows if row["engineeringName"] == process_name]
         if len(process_rows) < 2 or len({row["paginationGroup"] for row in process_rows}) == 1:
@@ -309,8 +329,19 @@ def _split_control_items(fields: dict[str, dict], file_name: str, page: int, tab
     return items
 
 
-def _flow_branch(name: str, sequence: int) -> str:
+def _flow_branch(name: str, sequence: int, template_profile: str) -> str:
     """Assign the five independent incoming lanes used by this QC master."""
+    compact_name = _header_key(name)
+    if template_profile == "sauce_pack":
+        if compact_name in {"原料(添加物)入廠", "原料(添加物)檢驗", "原料儲放", "備料"}:
+            return "material"
+        if sequence <= 10 and compact_name in {"原水存放", "軟化", "活性炭處理", "過濾", "貯存", "水質檢驗"}:
+            return "water"
+        if compact_name in {"包裝紙入廠", "包裝紙檢查"}:
+            return "packaging"
+        if compact_name in {"紙箱進廠", "紙箱檢驗"}:
+            return "carton"
+        return "main"
     if 1 <= sequence <= 4:
         return "material"
     if 5 <= sequence <= 12:
@@ -344,17 +375,20 @@ def parse_qc_template(path: str | Path) -> dict:
     path = Path(path)
     document = DocxDocument(path)
     tables = document.tables()
+    template_profile = _template_profile(tables)
     physical_rows: list[dict] = []
     pages: list[dict] = []
     page_number = 0
     inherited: dict[str, str] = {}
+    engineering_name_queue: list[str] = []
 
     for table in tables:
         active_ranges: dict[str, tuple[int, int]] | None = None
         active_page: dict | None = None
-        for row in table.rows:
+        for row_index, row in enumerate(table.rows):
             if _is_header(row):
-                active_ranges = _field_ranges(row)
+                group_row = table.rows[row_index - 1] if row_index else None
+                active_ranges = _field_ranges(row, group_row)
                 page_number += 1
                 widths = []
                 for field in FIELD_ORDER:
@@ -369,6 +403,7 @@ def parse_qc_template(path: str | Path) -> dict:
                 }
                 pages.append(active_page)
                 inherited = {}
+                engineering_name_queue = []
                 continue
             if active_ranges is None or active_page is None:
                 continue
@@ -379,6 +414,19 @@ def parse_qc_template(path: str | Path) -> dict:
             fields = _field_payload(row, active_ranges)
             if not any(fields[field]["text"] for field in FIELD_ORDER[1:]):
                 continue
+
+            # The sauce-pack master stores six water-treatment process names in
+            # one vertically merged cell.  Expand them onto the successive rows
+            # so every process name and flow symbol form one independently
+            # movable group in the editor.
+            engineering_payload = fields["engineeringName"]
+            if template_profile == "sauce_pack":
+                process_names = [clean_text(line) for line in engineering_payload["lines"] if clean_text(line)]
+                if engineering_payload["merge"] == "restart" and len(process_names) > 1:
+                    engineering_name_queue = process_names[1:]
+                    _set_field({"fields": fields}, "engineeringName", process_names[0])
+                elif engineering_payload["merge"] == "continue" and engineering_name_queue:
+                    _set_field({"fields": fields}, "engineeringName", engineering_name_queue.pop(0))
 
             for field in ("engineeringName", "machine", "operationStandard", "controlChart", "controller", "correctiveOwner", "samplingLocation", "samplingFrequency", "samplingQuantity"):
                 payload = fields[field]
@@ -413,8 +461,8 @@ def parse_qc_template(path: str | Path) -> dict:
                 physical_rows.append(physical)
                 active_page["rows"].append(physical)
 
-    _apply_confirmed_master_corrections(physical_rows)
-    _keep_split_processes_together(physical_rows, pages)
+    _apply_confirmed_master_corrections(physical_rows, template_profile)
+    _keep_split_processes_together(physical_rows, pages, template_profile)
 
     process_steps: list[ProcessStep] = []
     occurrence_counter: Counter[str] = Counter()
@@ -448,7 +496,7 @@ def parse_qc_template(path: str | Path) -> dict:
                 machines=_unique_field(current_rows, "machine"),
                 operation_standards=_unique_field(current_rows, "operationStandard"),
                 flow_symbol=_flow_symbol(name),
-                flow_branch=_flow_branch(name, len(process_steps) + 1),
+                flow_branch=_flow_branch(name, len(process_steps) + 1, template_profile),
                 control_people=_unique_field(current_rows, "controller"),
                 corrective_owners=_unique_field(current_rows, "correctiveOwner"),
                 sampling_locations=_unique_field(current_rows, "samplingLocation"),
@@ -485,6 +533,7 @@ def parse_qc_template(path: str | Path) -> dict:
 
     return {
         "sourceFile": path.name,
+        "templateProfile": template_profile,
         "pageCount": len(pages),
         "tableCount": len(tables),
         "processStepCount": len(process_steps),
