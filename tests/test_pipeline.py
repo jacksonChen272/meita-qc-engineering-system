@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from docx import Document
@@ -113,6 +114,100 @@ pH 值 7.5 8.1
         self.assertEqual(by_name[("sterilization", "上釜溫度")]["classification"], "REVIEW_REQUIRED")
         self.assertEqual(by_name[("finished", "內容量-重量")]["classification"], "LOCKED")
         self.assertEqual(by_name[("coa", "淨重(公克)")]["value"], "252–263")
+
+    def test_scanned_sauce_pdf_uses_sauce_sections_and_requires_review(self) -> None:
+        text = """
+===PAGE 1===
+===OCR===
+配方與製程 表
+產品名稱 :
+7-11 蕃茄醬
+產品代號:TKS
+在產品規格
+製程工程
+電腦代號 :390042340 |產品比重:1.14 |保存期間:1年
+pH
+3.8
+士0.2
+NaClCW/v)
+2.5%%
++0.2
+Brx
+27
+十2
+加熱至93沸騰
+總酸(w/v)
+1.5%
++0.2
+粘度
+4000 cps
++500
+使用原料
+170005100
+28-著茄糊
+290 kg
+成品規格(凌達)
+pH
+3.8
++0.2
+內容量
+10g/包
+以上
+生菌數
+100 cfu/g
+以下
+酵母&徽菌|陰性
+定量後加熱至 93C沸騰 |關蒸汽
+冷卻
+70一80C
+過渡
+10mesh 渡網
+成品規格(統萬)
+充填包裝
+65一75C
+pH
+3.8
++0.2
+NaClCW/v)
+2.5%
++0.2
+殺菌
+水溫85~91Cx10分
+Brx
+27
++2
+總酸(w/v)
+1.5%
+二0.2
+制定日
+版4
+112.06.02
+"""
+        rnd = parse_rnd_pdf_text(text, "蕃茄醬.pdf")
+
+        self.assertEqual(rnd["parserProfile"], "sauce_pack")
+        self.assertEqual(rnd["extractionMode"], "ocr")
+        self.assertEqual(rnd["product"]["name"], "蕃茄醬")
+        self.assertEqual(rnd["product"]["code"], "TKS")
+        self.assertEqual(rnd["product"]["version"], "4")
+        values = {(item["category"], item["processHint"], item["name"]): item for item in rnd["parameters"]}
+        self.assertEqual(values[("half_finished", "半成品檢驗", "糖度")]["value"], "27±2")
+        self.assertEqual(values[("workflow", "加入澱粉水定量關蒸氣", "溫度")]["value"], "93℃")
+        self.assertEqual(values[("filling", "過濾", "濾網規格")]["value"], "10 mesh")
+        self.assertEqual(values[("sterilization", "水淋式殺菌", "殺菌水溫")]["value"], "85–91℃")
+        self.assertEqual(values[("sterilization", "水淋式殺菌", "殺菌時間")]["value"], "10 分鐘")
+        self.assertTrue(all(item["classification"] == "REVIEW_REQUIRED" for item in rnd["parameters"]))
+
+        sauce_template = json.loads((ROOT / "ui" / "static" / "qc-template-sauce-pack.json").read_text(encoding="utf-8"))
+        mapping = map_parameters(rnd, sauce_template)
+        mapped = {
+            (item["targetProcessName"], item["targetControlItemName"])
+            for item in mapping["mappings"]
+            if item["mappingKind"] == "CONTROL_ITEM"
+        }
+        self.assertIn(("半成品檢驗", "糖度(Brix) (20℃)"), mapped)
+        self.assertIn(("加入澱粉水定量關蒸氣", "溫度(℃)"), mapped)
+        self.assertIn(("水淋式殺菌", "水溫(℃)"), mapped)
 
 
 @unittest.skipUnless(

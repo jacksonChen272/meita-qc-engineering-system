@@ -4,6 +4,7 @@
   const PYODIDE_INDEX = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
   const PDFJS_MODULE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs";
   const PDFJS_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
+  const TESSERACT_MODULE = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js";
   const PYTHON_SOURCES = [
     "build.py",
     "diff/__init__.py", "diff/compare.py", "diff/normalize.py",
@@ -16,6 +17,7 @@
 
   let readyPromise = null;
   let pdfJsPromise = null;
+  let tesseractPromise = null;
   let pyodide = null;
   const qcTemplatePromises = new Map();
   const QC_TEMPLATE_FILES = {
@@ -46,6 +48,11 @@
     return pdfJsPromise;
   }
 
+  async function loadTesseract() {
+    if (!tesseractPromise) tesseractPromise = import(TESSERACT_MODULE);
+    return tesseractPromise;
+  }
+
   function textLine(items) {
     const ordered = items.sort((left, right) => left.x - right.x);
     let output = "";
@@ -63,36 +70,104 @@
     return output.trim();
   }
 
+  async function renderOcrCanvas(page) {
+    const baseViewport = page.getViewport({ scale: 1 });
+    const targetScale = 300 / 72;
+    const maxPixels = 10000000;
+    const safeScale = Math.min(targetScale, Math.sqrt(maxPixels / (baseViewport.width * baseViewport.height)));
+    const viewport = page.getViewport({ scale: safeScale });
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(viewport.width));
+    canvas.height = Math.max(1, Math.round(viewport.height));
+    const context = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    // The source scans use pale blue rules and stamps. Converting to a high-
+    // contrast black/white page gives Traditional Chinese OCR much cleaner
+    // digits, ranges and degree symbols while keeping the document local.
+    const image = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < image.data.length; index += 4) {
+      const gray = (image.data[index] * 0.299) + (image.data[index + 1] * 0.587) + (image.data[index + 2] * 0.114);
+      const value = gray > 180 ? 255 : 0;
+      image.data[index] = value;
+      image.data[index + 1] = value;
+      image.data[index + 2] = value;
+      image.data[index + 3] = 255;
+    }
+    context.putImageData(image, 0, 0);
+    return canvas;
+  }
+
   async function extractPdfText(file, onStatus) {
     const pdfjs = await loadPdfJs();
     const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
     const pdf = await loadingTask.promise;
     const pages = [];
-    for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
-      onStatus?.(`正在擷取 PDF 第 ${pageNumber}／${pdf.numPages} 頁…`);
-      const page = await pdf.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const rows = [];
-      for (const item of content.items) {
-        if (!item.str || !item.transform) continue;
-        const x = Number(item.transform[4] || 0);
-        const y = Number(item.transform[5] || 0);
-        const height = Math.max(1, Math.abs(Number(item.height || item.transform[3] || 1)));
-        let row = rows.find(candidate => Math.abs(candidate.y - y) <= Math.max(2, height * 0.22));
-        if (!row) {
-          row = { y, items: [] };
-          rows.push(row);
+    let ocrWorker = null;
+    let activeOcrPage = 0;
+    let lastOcrPercent = -1;
+    try {
+      for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
+        onStatus?.(`正在擷取 PDF 第 ${pageNumber}／${pdf.numPages} 頁…`);
+        const page = await pdf.getPage(pageNumber);
+        const content = await page.getTextContent();
+        const rows = [];
+        for (const item of content.items) {
+          if (!item.str || !item.transform) continue;
+          const x = Number(item.transform[4] || 0);
+          const y = Number(item.transform[5] || 0);
+          const height = Math.max(1, Math.abs(Number(item.height || item.transform[3] || 1)));
+          let row = rows.find(candidate => Math.abs(candidate.y - y) <= Math.max(2, height * 0.22));
+          if (!row) {
+            row = { y, items: [] };
+            rows.push(row);
+          }
+          row.items.push({ x, width: Number(item.width || 0), height, text: item.str });
         }
-        row.items.push({ x, width: Number(item.width || 0), height, text: item.str });
+        const lines = rows.sort((left, right) => right.y - left.y).map(row => textLine(row.items)).filter(Boolean);
+        const pageText = lines.join("\n");
+        if (pageText.replace(/\s/g, "").length >= 30) {
+          pages.push(`===PAGE ${pageNumber}===\n${pageText}`);
+        } else {
+          activeOcrPage = pageNumber;
+          lastOcrPercent = -1;
+          onStatus?.(`第 ${pageNumber}／${pdf.numPages} 頁是掃描影像，正在載入 OCR…`);
+          if (!ocrWorker) {
+            const tesseract = await loadTesseract();
+            ocrWorker = await tesseract.createWorker("chi_tra", 1, {
+              logger(message) {
+                if (message.status !== "recognizing text") return;
+                const percent = Math.round(Number(message.progress || 0) * 100);
+                if (percent === lastOcrPercent || (percent % 5 !== 0 && percent !== 100)) return;
+                lastOcrPercent = percent;
+                onStatus?.(`正在 OCR 第 ${activeOcrPage}／${pdf.numPages} 頁… ${percent}%`);
+              },
+            });
+            await ocrWorker.setParameters({
+              tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
+              preserve_interword_spaces: "1",
+              user_defined_dpi: "300",
+            });
+          }
+          const canvas = await renderOcrCanvas(page);
+          const result = await ocrWorker.recognize(canvas);
+          const ocrText = String(result?.data?.text || "").trim();
+          if (ocrText.replace(/\s/g, "").length < 20) throw new Error(`第 ${pageNumber} 頁 OCR 沒有辨識到足夠文字。`);
+          pages.push(`===PAGE ${pageNumber}===\n===OCR===\n${ocrText}`);
+          canvas.width = 1;
+          canvas.height = 1;
+        }
+        page.cleanup();
       }
-      const lines = rows.sort((left, right) => right.y - left.y).map(row => textLine(row.items)).filter(Boolean);
-      pages.push(`===PAGE ${pageNumber}===\n${lines.join("\n")}`);
-      page.cleanup();
+    } finally {
+      if (ocrWorker) await ocrWorker.terminate();
+      await loadingTask.destroy();
     }
-    await loadingTask.destroy();
     const extracted = pages.join("\n");
     if (extracted.replace(/===PAGE\s+\d+===/g, "").trim().length < 30) {
-      throw new Error("PDF 沒有可讀取的文字；若是掃描檔，請先完成 OCR 後再匯入。");
+      throw new Error("PDF 沒有辨識到足夠的文字，請確認頁面清晰且未加密。");
     }
     return extracted;
   }

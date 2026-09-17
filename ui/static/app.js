@@ -227,7 +227,7 @@
       <div class="standard-import-copy">
         <p class="eyebrow">外來文件</p>
         <h2>匯入外來標準文件</h2>
-        <p>選擇研發或委託廠商提供的產品標準 Word 或 PDF（PDF 需含可選取文字）；系統會重新解析、比對 QC 母版並更新下方差異。${state.onlineMode ? "檔案只在目前瀏覽器中處理，不會上傳至 GitHub。" : ""}</p>
+        <p>選擇研發或委託廠商提供的產品標準 Word 或 PDF；掃描型 PDF 會在瀏覽器內自動 OCR。系統會重新解析、比對 QC 母版並更新下方差異。${state.onlineMode ? "檔案只在目前瀏覽器中處理，不會上傳至 GitHub。" : ""}</p>
       </div>
       <label class="standard-file-field">
         <span>${upload.loading ? "解析中，請稍候…" : `選擇標準文件（${formats}）`}</span>
@@ -836,8 +836,8 @@
       {
         menu: "外來標準", title: "匯入外來標準文件", location: "差異確認 → 匯入外來標準文件", demo: "standard", target: "diff", targetLabel: "前往匯入",
         intro: "外來標準是研發或委託廠商提供的產品標準。匯入後，系統會重新辨識產品、規格、設備與流程文字，並與 QC 母版進行對應。",
-        steps: ["按「選擇標準文件」。", "選擇 Word 或含可選取文字的 PDF 檔案。", "等待解析完成，不要關閉或重新整理頁面。", "核對目前產品、檔名、規格數量及設備數量。"],
-        system: ["每次重新匯入會重建差異結果與工程圖預覽。", "先前尚未儲存的人工選擇與流程調整會重設。", "掃描圖片型 PDF 必須先做 OCR，系統才讀得到文字。", "此處不要匯入舊版 QC 工程圖。"],
+        steps: ["按「選擇標準文件」。", "選擇 Word、文字型 PDF 或掃描型 PDF。", "掃描檔會自動 OCR，請等待進度完成，不要關閉或重新整理頁面。", "核對目前產品、檔名、規格數量及設備數量。"],
+        system: ["每次重新匯入會重建差異結果與工程圖預覽。", "先前尚未儲存的人工選擇與流程調整會重設。", "掃描 PDF 會先轉成高對比影像，再於本機瀏覽器辨識繁體中文。", "OCR 取得的規格一律標為需要確認，不會直接覆寫母版。", "此處不要匯入舊版 QC 工程圖。"],
         check: "看到綠色「已匯入」訊息，而且解析結果不是 0 項，才代表匯入完成。",
       },
       {
@@ -1057,7 +1057,7 @@
             </div>
           </fieldset>
           <div class="online-file-grid">
-            <label class="online-file-card required"><span class="online-file-number">2</span><div><h2>外來標準文件 <em>必要</em></h2><p>產品標準 Word／PDF；掃描 PDF 需先 OCR</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept="${serverMode ? `${LEGACY_WORD_ACCEPT},${PDF_ACCEPT}` : ONLINE_STANDARD_ACCEPT}" data-online-rnd></label>
+            <label class="online-file-card required"><span class="online-file-number">2</span><div><h2>外來標準文件 <em>必要</em></h2><p>產品標準 Word／PDF；掃描 PDF 自動 OCR</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept="${serverMode ? `${LEGACY_WORD_ACCEPT},${PDF_ACCEPT}` : ONLINE_STANDARD_ACCEPT}" data-online-rnd></label>
             <label class="online-file-card"><span class="online-file-number">3</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>支援舊式 .doc、新版 .docx、巨集文件與 Word 範本</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept="${LEGACY_WORD_ACCEPT}" data-online-legacy></label>
           </div>
           <button class="btn btn-accent online-start-button" type="button" data-online-start disabled>開始解析並建立工程圖</button>

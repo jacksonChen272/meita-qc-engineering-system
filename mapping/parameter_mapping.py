@@ -78,7 +78,13 @@ def map_parameters(rnd: dict, qc: dict) -> dict:
         item_aliases = {
             "濾網規格": "濾網大小",
             "填充量": "內容量",
+            "充填溫度": "中心溫度",
             "罐中心溫度": "中心溫度",
+            "鹽度": "鹽度",
+            "酸度": "酸度",
+            "總生菌數": "總生菌數",
+            "黴菌、酵母菌": "黴菌、酵母菌",
+            "殺菌水溫": "水溫",
             "殺菌溫度": "溫度",
             "殺菌時間": "時間",
             "旋轉速度-殺菌": "轉速",
@@ -105,6 +111,10 @@ def map_parameters(rnd: dict, qc: dict) -> dict:
                 continue
 
             candidates = [step for step in qc["processSteps"] if step["name"] in process_families.get(category, set())]
+            process_hint = parameter.get("processHint", "")
+            hinted = [step for step in candidates if step["name"] == process_hint]
+            if hinted:
+                candidates = hinted
             target_name = item_aliases.get(parameter["name"], parameter["name"])
             matched = [(step, control) for step in candidates if (control := _control(step, target_name)) is not None]
             if len(matched) == 1:
