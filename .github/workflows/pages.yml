@@ -26,12 +26,17 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
       - name: Install pinned browser dependencies
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Run JavaScript checks and tests
         run: |
           npm run lint
           npm test
+      - name: Run parser regression tests
+        run: python -m unittest -v tests.test_pipeline
       - name: Build browser-only site
         run: npm run build
       - uses: actions/configure-pages@v5
