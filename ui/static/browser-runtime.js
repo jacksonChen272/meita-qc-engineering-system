@@ -4,7 +4,6 @@
   const PYODIDE_INDEX = "https://cdn.jsdelivr.net/pyodide/v314.0.6/full/";
   const PDFJS_MODULE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.min.mjs";
   const PDFJS_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/build/pdf.worker.min.mjs";
-  const TESSERACT_MODULE = "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js";
   const PYTHON_SOURCES = [
     "build.py",
     "diff/__init__.py", "diff/compare.py", "diff/normalize.py",
@@ -17,7 +16,7 @@
 
   let readyPromise = null;
   let pdfJsPromise = null;
-  let tesseractPromise = null;
+  let ocrRuntimePromise = null;
   let pyodide = null;
   const qcTemplatePromises = new Map();
   const QC_TEMPLATE_FILES = {
@@ -48,9 +47,15 @@
     return pdfJsPromise;
   }
 
-  async function loadTesseract() {
-    if (!tesseractPromise) tesseractPromise = import(TESSERACT_MODULE);
-    return tesseractPromise;
+  async function loadOcrRuntime() {
+    if (!ocrRuntimePromise) ocrRuntimePromise = import("./ocr-runtime.mjs");
+    return ocrRuntimePromise;
+  }
+
+  function pipelineError(message, cause) {
+    const error = new Error(message, cause ? { cause } : undefined);
+    error.name = "QcPipelineError";
+    return error;
   }
 
   function textLine(items) {
@@ -101,18 +106,44 @@
   }
 
   async function extractPdfText(file, onStatus) {
-    const pdfjs = await loadPdfJs();
-    const loadingTask = pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) });
-    const pdf = await loadingTask.promise;
-    const pages = [];
-    let ocrWorker = null;
+    let pdfBytes;
+    try {
+      pdfBytes = new Uint8Array(await file.arrayBuffer());
+    } catch (error) {
+      throw pipelineError("PDF 讀取失敗：無法讀取所選檔案。", error);
+    }
+
+    let loadingTask = null;
+    let pdf = null;
+    try {
+      const pdfjs = await loadPdfJs();
+      loadingTask = pdfjs.getDocument({ data: pdfBytes });
+      pdf = await loadingTask.promise;
+    } catch (error) {
+      try { await loadingTask?.destroy(); } catch { /* PDF cleanup is best-effort. */ }
+      throw pipelineError("PDF 讀取失敗：檔案可能已損毀、加密或 PDF 元件無法載入。", error);
+    }
+
+    const pageRecords = [];
     let activeOcrPage = 0;
     let lastOcrPercent = -1;
     try {
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
         onStatus?.(`正在擷取 PDF 第 ${pageNumber}／${pdf.numPages} 頁…`);
-        const page = await pdf.getPage(pageNumber);
-        const content = await page.getTextContent();
+        let page;
+        try {
+          page = await pdf.getPage(pageNumber);
+        } catch (error) {
+          throw pipelineError(`PDF 讀取失敗：無法開啟第 ${pageNumber} 頁。`, error);
+        }
+        const record = { pageNumber, page, pageText: "" };
+        pageRecords.push(record);
+        let content;
+        try {
+          content = await page.getTextContent();
+        } catch (error) {
+          throw pipelineError(`PDF 文字擷取失敗：無法讀取第 ${pageNumber} 頁的文字層。`, error);
+        }
         const rows = [];
         for (const item of content.items) {
           if (!item.str || !item.transform) continue;
@@ -127,49 +158,66 @@
           row.items.push({ x, width: Number(item.width || 0), height, text: item.str });
         }
         const lines = rows.sort((left, right) => right.y - left.y).map(row => textLine(row.items)).filter(Boolean);
-        const pageText = lines.join("\n");
-        if (pageText.replace(/\s/g, "").length >= 30) {
-          pages.push(`===PAGE ${pageNumber}===\n${pageText}`);
-        } else {
-          activeOcrPage = pageNumber;
-          lastOcrPercent = -1;
-          onStatus?.(`第 ${pageNumber}／${pdf.numPages} 頁是掃描影像，正在載入 OCR…`);
-          if (!ocrWorker) {
-            const tesseract = await loadTesseract();
-            ocrWorker = await tesseract.createWorker("chi_tra", 1, {
-              logger(message) {
-                if (message.status !== "recognizing text") return;
-                const percent = Math.round(Number(message.progress || 0) * 100);
-                if (percent === lastOcrPercent || (percent % 5 !== 0 && percent !== 100)) return;
-                lastOcrPercent = percent;
-                onStatus?.(`正在 OCR 第 ${activeOcrPage}／${pdf.numPages} 頁… ${percent}%`);
-              },
-            });
-            await ocrWorker.setParameters({
-              tessedit_pageseg_mode: tesseract.PSM.SPARSE_TEXT,
-              preserve_interword_spaces: "1",
-              user_defined_dpi: "300",
-            });
-          }
-          const canvas = await renderOcrCanvas(page);
-          const result = await ocrWorker.recognize(canvas);
-          const ocrText = String(result?.data?.text || "").trim();
-          if (ocrText.replace(/\s/g, "").length < 20) throw new Error(`第 ${pageNumber} 頁 OCR 沒有辨識到足夠文字。`);
-          pages.push(`===PAGE ${pageNumber}===\n===OCR===\n${ocrText}`);
-          canvas.width = 1;
-          canvas.height = 1;
-        }
-        page.cleanup();
+        record.pageText = lines.join("\n");
       }
+
+      const ocrRuntime = await loadOcrRuntime();
+      const ocrRun = await ocrRuntime.withOcrIfNeeded(
+        pageRecords.map(record => record.pageText),
+        () => ocrRuntime.createConfiguredWorker({
+          logger(message) {
+            if (message.status !== "recognizing text") return;
+            const percent = Math.round(Number(message.progress || 0) * 100);
+            if (percent === lastOcrPercent || (percent % 5 !== 0 && percent !== 100)) return;
+            lastOcrPercent = percent;
+            onStatus?.(`正在 OCR 第 ${activeOcrPage}／${pdf.numPages} 頁… ${percent}%`);
+          },
+        }),
+        async worker => {
+          const pages = [];
+          for (const record of pageRecords) {
+            if (!ocrRuntime.shouldUseOcr(record.pageText)) {
+              pages.push(`===PAGE ${record.pageNumber}===\n${record.pageText}`);
+              continue;
+            }
+            activeOcrPage = record.pageNumber;
+            lastOcrPercent = -1;
+            onStatus?.(`第 ${record.pageNumber}／${pdf.numPages} 頁是掃描影像，正在執行 OCR…`);
+            let canvas = null;
+            try {
+              try {
+                canvas = await renderOcrCanvas(record.page);
+              } catch (error) {
+                throw pipelineError(`PDF 轉圖片失敗：無法轉換第 ${record.pageNumber} 頁。`, error);
+              }
+              let result;
+              try {
+                result = await worker.recognize(canvas);
+              } catch (error) {
+                throw pipelineError(`OCR 辨識失敗：第 ${record.pageNumber} 頁辨識時發生錯誤。`, error);
+              }
+              const ocrText = ocrRuntime.ensureOcrText(result?.data?.text, record.pageNumber);
+              pages.push(`===PAGE ${record.pageNumber}===\n===OCR===\n${ocrText}`);
+            } finally {
+              if (canvas) {
+                canvas.width = 1;
+                canvas.height = 1;
+              }
+            }
+          }
+          return pages.join("\n");
+        },
+      );
+      if (!ocrRun.used) {
+        return pageRecords.map(record => `===PAGE ${record.pageNumber}===\n${record.pageText}`).join("\n");
+      }
+      return ocrRun.value;
     } finally {
-      if (ocrWorker) await ocrWorker.terminate();
-      await loadingTask.destroy();
+      for (const record of pageRecords) {
+        try { record.page.cleanup(); } catch { /* Page cleanup is best-effort. */ }
+      }
+      try { await loadingTask?.destroy(); } catch { /* PDF cleanup is best-effort. */ }
     }
-    const extracted = pages.join("\n");
-    if (extracted.replace(/===PAGE\s+\d+===/g, "").trim().length < 30) {
-      throw new Error("PDF 沒有辨識到足夠的文字，請確認頁面清晰且未加密。");
-    }
-    return extracted;
   }
 
   async function initialize(onStatus) {
@@ -230,7 +278,8 @@
       pyodide.globals.set("qc_json_js", qcJson);
       pyodide.globals.set("pdf_text_js", pdfText);
       pyodide.globals.set("pdf_name_js", safeFileName(rndFile));
-      const output = await pyodide.runPythonAsync(`
+      try {
+        const output = await pyodide.runPythonAsync(`
 import json
 from build import build_bundle_from_rnd
 from parsers import parse_rnd_pdf_text
@@ -238,19 +287,34 @@ _rnd = parse_rnd_pdf_text(pdf_text_js, pdf_name_js)
 _bundle, _report = build_bundle_from_rnd(json.loads(qc_json_js), _rnd)
 json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
 `);
-      return JSON.parse(output);
+        const result = JSON.parse(output);
+        if (!result.data?.rnd?.parameterCount) {
+          throw new Error("找不到可解析的產品規格或製程條件。");
+        }
+        return result;
+      } catch (error) {
+        throw pipelineError(`工程圖欄位解析失敗：${error.message || "無法建立 PDF 欄位資料。"}`, error);
+      }
     }
     const rndPath = await writeDocument(rndFile, "");
     pyodide.globals.set("qc_json_js", qcJson);
     pyodide.globals.set("rnd_path_js", rndPath);
-    const output = await pyodide.runPythonAsync(`
+    try {
+      const output = await pyodide.runPythonAsync(`
 import json
 from pathlib import Path
 from build import build_bundle_from_qc
 _bundle, _report = build_bundle_from_qc(json.loads(qc_json_js), Path(rnd_path_js))
 json.dumps({"ok": True, "data": _bundle, "report": _report}, ensure_ascii=False)
 `);
-    return JSON.parse(output);
+      const result = JSON.parse(output);
+      if (!result.data?.rnd?.parameterCount) {
+        throw new Error("找不到可解析的產品規格或製程條件。");
+      }
+      return result;
+    } catch (error) {
+      throw pipelineError(`工程圖欄位解析失敗：${error.message || "無法建立 Word 欄位資料。"}`, error);
+    }
   }
 
   async function buildBundle(rndFile, templateKey, onStatus) {

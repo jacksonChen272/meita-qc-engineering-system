@@ -22,14 +22,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Prepare browser-only site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install pinned browser dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run JavaScript checks and tests
         run: |
-          mkdir -p site
-          cp ui/static/index.html ui/static/app.js ui/static/styles.css ui/static/browser-runtime.js ui/static/legacy-word-parser.js ui/static/qc-template-nutrition.json ui/static/qc-template-sauce-pack.json site/
-          cp -R ui/static/vendor site/
-          cp build.py site/
-          cp -R diff domain mapping parsers render templates site/
-          touch site/.nojekyll
+          npm run lint
+          npm test
+      - name: Build browser-only site
+        run: npm run build
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

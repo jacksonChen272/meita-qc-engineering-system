@@ -1,0 +1,20 @@
+{
+  "name": "meita-qc-engineering-system",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based QC engineering diagram generator",
+  "scripts": {
+    "typecheck": "node --check ui/static/browser-runtime.js && node --check ui/static/ocr-runtime.mjs && node --check ui/static/app.js && node --check scripts/build-web.mjs",
+    "lint": "eslint ui/static/app.js ui/static/browser-runtime.js ui/static/ocr-runtime.mjs scripts/build-web.mjs tests/browser-runtime.test.mjs tests/ocr-browser-qa.cjs",
+    "test": "node --test tests/browser-runtime.test.mjs",
+    "build": "node scripts/build-web.mjs"
+  },
+  "dependencies": {
+    "@tesseract.js-data/chi_tra": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "tesseract.js": "7.0.0"
+  },
+  "devDependencies": {
+    "eslint": "10.10.0"
+  }
+}

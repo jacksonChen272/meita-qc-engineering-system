@@ -11,9 +11,6 @@ License: Zero-Clause BSD (0BSD). The complete license text is stored at
 
 ## Browser runtime libraries
 
-The GitHub Pages version loads the following pinned runtime libraries from
-jsDelivr. They are not bundled in this repository:
-
-- [Pyodide](https://github.com/pyodide/pyodide) browser runtime (`v314.0.6` distribution), Mozilla Public License 2.0.
-- [PDF.js](https://github.com/mozilla/pdf.js) 6.3.289, Apache License 2.0.
-- [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and its Tesseract OCR core/language data, Apache License 2.0.
+- [Pyodide](https://github.com/pyodide/pyodide) browser runtime (`v314.0.6` distribution) is loaded from jsDelivr, Mozilla Public License 2.0.
+- [PDF.js](https://github.com/mozilla/pdf.js) 6.3.289 is loaded from jsDelivr, Apache License 2.0.
+- [Tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0, Tesseract.js Core 7.0.0, and the `chi_tra`/`eng` language data are installed from the pinned npm lockfile and copied into the production site, Apache License 2.0.

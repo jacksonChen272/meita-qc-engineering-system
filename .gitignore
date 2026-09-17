@@ -1,6 +1,8 @@
 __pycache__/
 *.py[cod]
 .venv/
+node_modules/
+site/
 
 # Company-controlled documents and their extracted content stay local.
 input/*.doc

@@ -1106,7 +1106,9 @@
         } else {
           result = await window.QcBrowserRuntime.buildBundle(rndFile, templateKey, message => { status.textContent = message; });
         }
-        if (!result.ok || !result.data?.rnd?.parameterCount) throw new Error("找不到可解析的產品規格或標準項目");
+        if (!result.ok || !result.data?.rnd?.parameterCount) {
+          throw new Error("工程圖欄位解析失敗：找不到可解析的產品規格或標準項目。");
+        }
         initializeData(result.data, {
           onlineMode: !serverMode,
           templateKey,
