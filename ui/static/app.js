@@ -53,6 +53,32 @@
   };
   const app = document.getElementById("app");
   let globalListenersBound = false;
+  let templateManagerPromise = null;
+
+  function loadTemplateManager() {
+    if (!templateManagerPromise) templateManagerPromise = import("./template-manager.mjs");
+    return templateManagerPromise;
+  }
+
+  function hasStoredCustomTemplate(templateKey) {
+    try { return Boolean(localStorage.getItem(`meita-qc-template:v1:${templateKey}`)); }
+    catch { return false; }
+  }
+
+  async function templateOverride(templateKey) {
+    try { return (await loadTemplateManager()).getCustomTemplate(templateKey); }
+    catch { return null; }
+  }
+
+  async function openTemplateManager({ returnToSetup = false, serverMode = false } = {}) {
+    const manager = await loadTemplateManager();
+    await manager.openTemplateManager({
+      container: app,
+      definitions: QC_TEMPLATES,
+      initialKey: state.templateKey || "nutrition",
+      onClose: returnToSetup ? () => showOnlineSetup(serverMode) : () => render(),
+    });
+  }
 
   function esc(value) {
     return String(value ?? "")
@@ -139,7 +165,7 @@
     ];
     return `<header class="topbar">
       <div class="brand"><div class="brand-mark">QC</div><div><strong>美達食品 QC 工程圖</strong><small>外來標準比對與工程圖產生</small></div></div>
-      <nav class="topnav" aria-label="主要導覽">${nav.map(([key, label]) => `<button class="${state.view === key ? "active" : ""}" data-view="${key}">${label}</button>`).join("")}</nav>
+      <nav class="topnav" aria-label="主要導覽">${nav.map(([key, label]) => `<button class="${state.view === key ? "active" : ""}" data-view="${key}">${label}</button>`).join("")}<button data-open-template-manager>母版管理</button></nav>
     </header>`;
   }
 
@@ -688,7 +714,7 @@
         const response = await fetch("/api/import-standard", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ filename: file.name, contentBase64, templateKey: state.templateKey }),
+          body: JSON.stringify({ filename: file.name, contentBase64, templateKey: state.templateKey, templateJson: await templateOverride(state.templateKey) }),
         });
         result = await response.json();
         if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);
@@ -813,6 +839,7 @@
   function tutorialDemo(kind) {
     const demos = {
       overview: `<div class="demo-overview"><div><b>1</b><span>匯入標準</span></div><i>→</i><div><b>2</b><span>確認差異</span></div><i>→</i><div><b>3</b><span>調整預覽</span></div><i>→</i><div><b>4</b><span>輸出檔案</span></div></div>`,
+      template: `<div class="demo-form"><label>正在編輯<strong>營養品母版⌄</strong></label><label>工程名稱<strong>溶解混合攪拌</strong></label><label>流程記號<strong>○ 操作</strong></label><label>流程支線<strong>主流程</strong></label></div><div class="demo-success">✓ 儲存後，下一次解析自動套用自訂母版。</div>`,
       standard: `<div class="demo-upload"><div class="demo-word">W</div><div><small>外來標準文件</small><strong>選擇標準文件（Word／PDF）</strong><span>力增 洗腎配方(杏仁).pdf</span></div><button type="button">選擇檔案</button></div><div class="demo-success">✓ 已匯入文件；完成規格解析與自動對應。</div>`,
       filters: `<div class="demo-statuses"><span><b>12</b>變更</span><span><b>4</b>需要確認</span><span><b>4</b>鎖定</span><span><b>8</b>研發缺少</span></div><div class="demo-filters"><b>全部</b><span>只看變更</span><span>需要確認</span><span>鎖定</span></div>`,
       decision: `<div class="demo-values"><div><small>母版</small><b>13～20</b></div><div><small>研發</small><b>13–20°C</b></div><div><small>目前建議</small><b>13～20</b></div></div><div class="demo-decisions"><button>採用研發值</button><button class="selected">保留母版</button><button>人工輸入</button></div>`,
@@ -832,6 +859,13 @@
         steps: ["先選擇營養品母版或醬包母版。", "匯入外來標準 Word 或 PDF。", "逐項確認系統找出的 QC 差異。", "到工程圖預覽填寫首頁、調整流程。", "檢查完成後列印、另存 PDF 或 HTML。"],
         system: ["不會只因數字相近就判定相同。", "CCP／OPRP 與鎖定項目會保留保護規則。", "相鄰且內容相同的儲存格會依母版規則合併。"],
         check: "開始前請先判斷產品應使用哪一個母版，並準備外來標準文件；若有同產品舊版 QC 工程圖，也一併準備。",
+      },
+      {
+        menu: "母版管理", title: "修改、備份與還原母版", location: "開始畫面 → 管理／修改母版，或上方導覽 → 母版管理", demo: "template", manager: true, targetLabel: "開啟母版管理",
+        intro: "母版管理可修改營養品與醬包母版的工程順序、流程記號、支線及每一列 QC 欄位。修改內容只儲存在目前瀏覽器，不會覆蓋系統內建版本。",
+        steps: ["先選擇要修改的母版。", "從左側選擇工程群組，修改工程名稱、記號或支線。", "展開管制列，逐欄修改管制項目、基準、圖表、取樣與檢測資料。", "需要時新增、刪除或移動工程與管制列。", "先匯出 JSON 備份，再按「儲存並套用母版」。"],
+        system: ["下一次建立工程圖時會自動採用自訂母版。", "相同欄位會重新套用上下合併規則，工程群組不會拆到兩頁。", "JSON 可帶到其他電腦匯入。", "按還原可隨時回到系統內建版本。"],
+        check: "回到開始畫面後，母版卡片顯示「使用自訂版本」，才代表儲存成功。",
       },
       {
         menu: "外來標準", title: "匯入外來標準文件", location: "差異確認 → 匯入外來標準文件", demo: "standard", target: "diff", targetLabel: "前往匯入",
@@ -886,7 +920,7 @@
     state.tutorialPage = Math.min(Math.max(state.tutorialPage, 0), chapters.length - 1);
     const menu = chapters.map((chapter, index) => `<button class="tutorial-menu-button ${index === state.tutorialPage ? "active" : ""}" type="button" data-tutorial-page="${index}"><b>${String(index + 1).padStart(2, "0")}</b><span><strong>${esc(chapter.menu)}</strong><small>${esc(chapter.title)}</small></span></button>`).join("");
     const pages = chapters.map((chapter, index) => `<section class="tutorial-chapter" data-active="${index === state.tutorialPage}" data-tutorial-chapter="${index}">
-      <div class="tutorial-chapter-heading"><div><p class="eyebrow">功能 ${String(index + 1).padStart(2, "0")}／${String(chapters.length).padStart(2, "0")}</p><h1>${esc(chapter.title)}</h1><p class="tutorial-location">${esc(chapter.location)}</p></div>${chapter.target ? `<button class="btn btn-accent" type="button" data-view="${chapter.target}">${esc(chapter.targetLabel)}</button>` : ""}</div>
+      <div class="tutorial-chapter-heading"><div><p class="eyebrow">功能 ${String(index + 1).padStart(2, "0")}／${String(chapters.length).padStart(2, "0")}</p><h1>${esc(chapter.title)}</h1><p class="tutorial-location">${esc(chapter.location)}</p></div>${chapter.manager ? `<button class="btn btn-accent" type="button" data-open-template-manager>${esc(chapter.targetLabel)}</button>` : chapter.target ? `<button class="btn btn-accent" type="button" data-view="${chapter.target}">${esc(chapter.targetLabel)}</button>` : ""}</div>
       <p class="tutorial-intro">${esc(chapter.intro)}</p>
       ${tutorialDemo(chapter.demo)}
       <div class="tutorial-detail-grid"><section><h2>怎麼操作</h2><ol>${chapter.steps.map(step => `<li>${esc(step)}</li>`).join("")}</ol></section><section><h2>系統會怎麼處理</h2><ul>${chapter.system.map(item => `<li>${esc(item)}</li>`).join("")}</ul></section></div>
@@ -909,6 +943,7 @@
 
   function bindEvents() {
     document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
+    document.querySelectorAll("[data-open-template-manager]").forEach(button => button.addEventListener("click", () => openTemplateManager()));
     document.querySelectorAll("[data-tutorial-page]").forEach(button => button.addEventListener("click", () => {
       state.tutorialPage = Number(button.dataset.tutorialPage);
       render();
@@ -1053,9 +1088,10 @@
           <fieldset class="online-template-picker">
             <legend><span class="online-file-number">1</span><span><strong>選擇 QC 工程圖母版</strong><em>必要</em></span></legend>
             <div class="online-template-grid">
-              ${Object.entries(QC_TEMPLATES).map(([key, template]) => `<label class="online-template-card"><input type="radio" name="qc-template" value="${esc(key)}" data-online-template><span class="template-radio"></span><span><strong>${esc(template.label)}</strong><small>${esc(template.description)}</small></span></label>`).join("")}
+              ${Object.entries(QC_TEMPLATES).map(([key, template]) => `<label class="online-template-card"><input type="radio" name="qc-template" value="${esc(key)}" data-online-template><span class="template-radio"></span><span><strong>${esc(template.label)}</strong><small>${esc(template.description)}</small>${hasStoredCustomTemplate(key) ? '<span class="template-custom-badge">使用自訂版本</span>' : ""}</span></label>`).join("")}
             </div>
           </fieldset>
+          <div class="online-template-actions"><button class="btn" type="button" data-open-template-manager>管理／修改母版</button></div>
           <div class="online-file-grid">
             <label class="online-file-card required"><span class="online-file-number">2</span><div><h2>外來標準文件 <em>必要</em></h2><p>產品標準 Word／PDF；掃描 PDF 自動 OCR</p><strong data-online-rnd-name>尚未選擇檔案</strong></div><input type="file" accept="${serverMode ? `${LEGACY_WORD_ACCEPT},${PDF_ACCEPT}` : ONLINE_STANDARD_ACCEPT}" data-online-rnd></label>
             <label class="online-file-card"><span class="online-file-number">3</span><div><h2>舊版 QC 工程圖 <em>選填</em></h2><p>支援舊式 .doc、新版 .docx、巨集文件與 Word 範本</p><strong data-online-legacy-name>沒有舊版可不選</strong></div><input type="file" accept="${LEGACY_WORD_ACCEPT}" data-online-legacy></label>
@@ -1074,6 +1110,7 @@
     const templateInputs = [...document.querySelectorAll("[data-online-template]")];
     const startButton = document.querySelector("[data-online-start]");
     const status = document.querySelector("[data-online-status]");
+    document.querySelector("[data-open-template-manager]").addEventListener("click", () => openTemplateManager({ returnToSetup: true, serverMode }));
     const updateSelection = () => {
       document.querySelector("[data-online-rnd-name]").textContent = rndInput.files?.[0]?.name || "尚未選擇檔案";
       document.querySelector("[data-online-legacy-name]").textContent = legacyInput.files?.[0]?.name || "沒有舊版可不選";
@@ -1099,7 +1136,7 @@
           const response = await fetch("/api/import-standard", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ filename: rndFile.name, contentBase64, templateKey }),
+            body: JSON.stringify({ filename: rndFile.name, contentBase64, templateKey, templateJson: await templateOverride(templateKey) }),
           });
           result = await response.json();
           if (!response.ok || !result.ok) throw new Error(result.error || `HTTP ${response.status}`);

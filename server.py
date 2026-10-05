@@ -24,6 +24,27 @@ WORD_SUFFIXES = {".doc", ".docx", ".docm", ".dot", ".dotx", ".dotm", ".wbk"}
 BINARY_WORD_SUFFIXES = {".doc", ".dot", ".wbk"}
 
 
+def validate_template_override(template: object, template_key: str) -> dict:
+    if not isinstance(template, dict):
+        raise ValueError("自訂母版必須是 JSON 物件")
+    if template.get("templateProfile") != template_key:
+        raise ValueError("自訂母版類型與所選母版不一致")
+    process_steps = template.get("processSteps")
+    pages = template.get("layout", {}).get("pages") if isinstance(template.get("layout"), dict) else None
+    if not isinstance(process_steps, list) or not process_steps:
+        raise ValueError("自訂母版至少需要一個工程群組")
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("自訂母版缺少工程圖分頁資料")
+    process_ids = [str(step.get("id", "")) for step in process_steps if isinstance(step, dict)]
+    if len(process_ids) != len(process_steps) or any(not item for item in process_ids) or len(set(process_ids)) != len(process_ids):
+        raise ValueError("自訂母版工程群組 ID 不可空白或重複")
+    known_ids = set(process_ids)
+    rows = [row for page in pages if isinstance(page, dict) for row in page.get("rows", []) if isinstance(row, dict)]
+    if not rows or any(row.get("processStepId") not in known_ids or not isinstance(row.get("fields"), dict) for row in rows):
+        raise ValueError("自訂母版含有無效的工程資料列")
+    return template
+
+
 class DemoHandler(SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(STATIC), **kwargs)
@@ -93,7 +114,8 @@ class DemoHandler(SimpleHTTPRequestHandler):
                     if suffix in BINARY_WORD_SUFFIXES:
                         source = Path(folder) / f"{Path(filename).stem}.docx"
                         convert_doc_to_docx(uploaded, source)
-                    qc = json.loads(template_path.read_text(encoding="utf-8"))
+                    override = body.get("templateJson")
+                    qc = validate_template_override(override, template_key) if override is not None else json.loads(template_path.read_text(encoding="utf-8"))
                     bundle, report = build_bundle_from_qc(qc, source)
                     if not bundle["rnd"].get("parameterCount"):
                         raise ValueError("找不到可解析的產品規格或標準項目")

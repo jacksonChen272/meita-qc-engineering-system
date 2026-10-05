@@ -260,6 +260,12 @@
   async function loadQcTemplate(templateKey) {
     const safeKey = Object.prototype.hasOwnProperty.call(QC_TEMPLATE_FILES, templateKey) ? templateKey : "";
     if (!safeKey) throw new Error("請先選擇 QC 工程圖母版。");
+    try {
+      const manager = await import("./template-manager.mjs");
+      return JSON.stringify(await manager.getEffectiveTemplate(safeKey));
+    } catch (error) {
+      if (error?.message && !/module|載入/i.test(error.message)) throw error;
+    }
     if (!qcTemplatePromises.has(safeKey)) {
       qcTemplatePromises.set(safeKey, fetch(QC_TEMPLATE_FILES[safeKey], { cache: "no-store" }).then(response => {
         if (!response.ok) throw new Error("網站缺少所選 QC 母版，請通知系統管理者。");

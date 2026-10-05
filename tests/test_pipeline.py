@@ -18,6 +18,20 @@ from diff import align_display_value, build_diff, values_equal
 from mapping import map_parameters
 from parsers import parse_legacy_metadata, parse_qc_template, parse_rnd_document, parse_rnd_pdf_text
 from render import build_preview_model, validate_pagination
+from server import validate_template_override
+
+
+class TemplateOverrideTests(unittest.TestCase):
+    def test_valid_custom_template_is_accepted(self) -> None:
+        template = json.loads((ROOT / "ui" / "static" / "qc-template-nutrition.json").read_text(encoding="utf-8"))
+        self.assertIs(validate_template_override(template, "nutrition"), template)
+
+    def test_mismatched_or_incomplete_custom_template_is_rejected(self) -> None:
+        template = json.loads((ROOT / "ui" / "static" / "qc-template-nutrition.json").read_text(encoding="utf-8"))
+        with self.assertRaisesRegex(ValueError, "類型"):
+            validate_template_override(template, "sauce_pack")
+        with self.assertRaisesRegex(ValueError, "工程群組"):
+            validate_template_override({"templateProfile": "nutrition"}, "nutrition")
 
 
 class NormalizeTests(unittest.TestCase):

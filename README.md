@@ -12,6 +12,8 @@ GitHub Pages：<https://jacksonchen272.github.io/meita-qc-engineering-system/>
 
 線上版已內建「營養品母版」與「醬包母版」。第一次開啟時必須先選母版，再選擇外來標準 `.docx` 或 `.pdf`；若有同產品舊版 QC 工程圖，也可選填 `.doc`、`.docx`、`.docm` 或 Word 範本以延續文件資料。文件會在目前瀏覽器的暫存記憶體中解析，不會傳送至 GitHub；重新整理或關閉分頁後資料即清除。文字型 PDF 會直接擷取文字，掃描圖片型 PDF 才會啟動瀏覽器內的繁體中文／英文 OCR，OCR 規格會標示為需要人工確認。OCR 的 worker、WASM 與 `chi_tra`／`eng` 語言資料均由 production build 從固定 npm 版本複製到網站，不依賴 Tesseract CDN。加密、損毀或早於 Word 97 的舊檔，需先用 Microsoft Word 另存為 `.docx`。
 
+開始畫面與系統上方導覽皆提供「母版管理」。可修改工程群組、流程記號、支線以及每列管制欄位，也可新增、刪除或調整順序。自訂母版存於目前瀏覽器的 `localStorage`，下一次解析自動套用；JSON 匯出／匯入可用於備份及換電腦移轉，還原功能會移除自訂版本並回到內建母版。
+
 ## 啟動
 
 第一次下載後，先將下列兩份本機文件放入 `input/`：

@@ -17,6 +17,7 @@ const staticFiles = [
   "styles.css",
   "browser-runtime.js",
   "ocr-runtime.mjs",
+  "template-manager.mjs",
   "legacy-word-parser.js",
   "qc-template-nutrition.json",
   "qc-template-sauce-pack.json",

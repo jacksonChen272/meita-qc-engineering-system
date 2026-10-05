@@ -1,5 +1,6 @@
 const browserGlobals = {
   Blob: "readonly",
+  CustomEvent: "readonly",
   DOMParser: "readonly",
   FileReader: "readonly",
   TextEncoder: "readonly",
@@ -8,6 +9,8 @@ const browserGlobals = {
   document: "readonly",
   fetch: "readonly",
   getComputedStyle: "readonly",
+  confirm: "readonly",
+  localStorage: "readonly",
   navigator: "readonly",
   requestAnimationFrame: "readonly",
   setTimeout: "readonly",
@@ -19,6 +22,7 @@ const nodeGlobals = {
   console: "readonly",
   process: "readonly",
   require: "readonly",
+  structuredClone: "readonly",
 };
 
 const commonRules = {
